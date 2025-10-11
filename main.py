@@ -621,7 +621,7 @@ async def scrape_page(url, session, retry=0):
     try:
         response = await session.get(
             url, 
-            timeout=30.0,
+            timeout=10.0,
             follow_redirects=True
         )
         
@@ -790,7 +790,7 @@ async def main():
                 'Connection': 'keep-alive',
                 'Upgrade-Insecure-Requests': '1'
             },
-            timeout=httpx.Timeout(30.0, connect=10.0),
+            timeout=httpx.Timeout(10.0, connect=10.0),
             limits=httpx.Limits(max_connections=350, max_keepalive_connections=75)  # INCREASED FOR 300 CONCURRENT
         ) as session:
             
