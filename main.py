@@ -744,9 +744,9 @@ async def crawl_business(base_url, session):
 
 async def main():
     """Main scraper with aggressive performance testing"""
-    log("🚀 DOMAIN ENRICHMENT SCRAPER v7.2 - PERFORMANCE TEST MODE")
+    log("🚀 DOMAIN ENRICHMENT SCRAPER v7.3 - MAXIMUM PERFORMANCE MODE")
     log(f"📅 Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    log(f"🔥 CONCURRENCY: 200 (AGGRESSIVE TEST)")
+    log(f"🔥 CONCURRENCY: 300 (HIGH PERFORMANCE)")
     log(f"⏱️  TIMEOUT: 30s per request")
     log(f"📄 PAGES: Up to 20 per domain\n")
     
@@ -791,11 +791,11 @@ async def main():
                 'Upgrade-Insecure-Requests': '1'
             },
             timeout=httpx.Timeout(30.0, connect=10.0),
-            limits=httpx.Limits(max_connections=250, max_keepalive_connections=50)  # INCREASED LIMITS
+            limits=httpx.Limits(max_connections=350, max_keepalive_connections=75)  # INCREASED FOR 300 CONCURRENT
         ) as session:
             
             # Process with HIGH concurrency
-            semaphore = asyncio.Semaphore(200)  # 🔥 200 CONCURRENT!
+            semaphore = asyncio.Semaphore(300)  # 🔥 300 CONCURRENT!
             results = []
             
             async def crawl_with_limit(domain):
