@@ -1,53 +1,84 @@
 import asyncio
 import httpx
 from bs4 import BeautifulSoup
-import csv
+from supabase import create_client, Client
+import os
 import re
 from datetime import datetime
 from urllib.parse import urlparse
 import sys
-import pandas as pd
 
-# Complete equipment types and phrases
+# ===== SUPABASE CREDENTIALS FROM ENV =====
+SUPABASE_URL = os.getenv('SUPABASE_URL')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY')
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# MANUFACTURING EQUIPMENT & MATERIALS DETECTOR v7.0
 EQUIPMENT_TYPES = [
-    'cnc machining', 'laser cutting', 'waterjet cutting', 'injection molding',
-    'extrusion', 'blow molding', 'thermoforming', 'rotational molding',
-    'compression molding', 'tube bending', 'pipe fabrication', 'metal stamping',
-    'die casting', 'investment casting', 'sand casting', 'welding',
-    'powder coating', 'anodizing', 'plating', 'heat treating'
+    '5-axis machining', '4-axis machining', '3-axis machining', 'multi-axis machining',
+    'cnc machining services', 'cnc machining capabilities', 'precision machining',
+    'cnc turning', 'cnc turning services', 'cnc milling', 'cnc milling services',
+    'swiss machining', 'swiss-type machining', 'vertical machining center',
+    'laser cutting', 'laser cutting services', 'fiber laser cutting',
+    'waterjet cutting', 'press brake', 'metal forming', 'bending services',
+    'sheet metal fabrication', 'metal fabrication', 'welding', 'mig welding', 'tig welding',
+    'wire edm', 'sinker edm', 'grinding', 'precision grinding',
+    'metal stamping', 'progressive die stamping', 'tool and die',
+    'die casting', 'investment casting', 'sand casting',
+    'injection molding', 'plastic injection molding', 'insert molding', 'overmolding',
+    'two-shot molding', '2k molding', 'lsr molding', 'micro molding',
+    'extrusion', 'plastic extrusion', 'blow molding', 'thermoforming',
+    'rotomolding', 'compression molding', '3d printing', 'additive manufacturing'
 ]
 
-# Equipment brands
 BRANDS = [
-    'haas', 'mazak', 'okuma', 'dmg mori', 'makino', 'fanuc', 'brother',
-    'engel', 'arburg', 'husky', 'milacron', 'cincinnati', 'trumpf',
-    'amada', 'bystronic', 'prima power', 'doosan', 'hyundai wia'
+    'haas', 'mazak', 'dmg mori', 'okuma', 'makino', 'fanuc', 'brother',
+    'doosan', 'hermle', 'chiron', 'trumpf', 'amada', 'bystronic', 'prima power',
+    'omax', 'jet edge', 'accurpress', 'ermaksan', 'miller', 'lincoln electric',
+    'sodick', 'charmilles', 'engel', 'arburg', 'haitian', 'sumitomo demag', 'nissei',
+    'husky', 'milacron', 'krauss maffei', 'boy', 'chen hsong', 'davis-standard',
+    'coperion', 'battenfeld-cincinnati', 'kautex', 'bekum', 'uniloy', 'jomar',
+    'sidel', 'brown machine', 'illig', 'kiefel', 'persico', 'ferry', 'stratasys',
+    '3d systems', 'eos', 'formlabs', 'novatec', 'motan', 'maguire', 'matsui', 'piovan'
 ]
 
-# Materials
-PLASTICS = ['abs', 'nylon', 'polycarbonate', 'pet', 'hdpe', 'ldpe', 'pp', 'pvc', 'peek', 'ultem']
-METALS = ['aluminum', 'stainless steel', 'steel', 'brass', 'copper', 'titanium', '6061', '7075', '304', '316']
+PLASTICS = [
+    'pet', 'hdpe', 'ldpe', 'pp', 'polypropylene', 'pvc', 'abs', 'nylon', 'polyamide',
+    'pa6', 'pa66', 'pc', 'polycarbonate', 'lexan', 'pom', 'acetal', 'delrin',
+    'petg', 'peek', 'ultem', 'pei', 'pps', 'ryton', 'ptfe', 'teflon',
+    'tpe', 'tpu', 'lsr', 'liquid silicone rubber', 'rpet', 'recycled pet'
+]
 
-# Keywords
-KEYWORDS = ['cnc', 'laser', 'welding', 'molding', 'fabrication', 'machining', 'casting', 'stamping']
+METALS = [
+    'aluminum', '6061', '6061-t6', '7075', '7075-t6', '5052', '2024',
+    'carbon steel', 'alloy steel', '4140', '4340', '1018', '1045',
+    'stainless steel', '304', '316', '303', '17-4', '17-4 ph',
+    '304l', '316l', 'duplex stainless', 'brass', 'bronze', 'copper',
+    'titanium', 'ti-6al-4v', 'inconel', 'hastelloy', 'monel'
+]
 
-# Email regex
+KEYWORDS = [
+    'cnc', 'machining', 'machine shop', 'mill', 'lathe', 'turning', 'milling',
+    'laser', 'laser cutting', 'waterjet', 'press brake', 'bending', 'welding',
+    'edm', 'grinding', 'stamping', 'casting', 'die casting',
+    'injection molding', 'plastic injection', 'extrusion', 'blow molding',
+    'thermoforming', '3d printing', 'additive manufacturing'
+]
+
 EMAIL_REGEX = re.compile(r'\b([a-zA-Z0-9][a-zA-Z0-9._+-]*@[a-zA-Z0-9][a-zA-Z0-9._-]*\.[a-zA-Z]{2,})\b', re.IGNORECASE)
 
 def log(msg):
-    """Print with timestamp and flush immediately"""
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
     sys.stdout.flush()
 
 def is_valid_email(email):
-    """Validate email"""
     if email.count('@') != 1:
         return False
     invalid = ['.png', '.jpg', '.css', '.js', 'example.com', 'noreply', 'sentry.io']
     return not any(p in email.lower() for p in invalid)
 
 def extract_internal_links(html, base_domain):
-    """Extract internal links from HTML"""
     soup = BeautifulSoup(html, 'html.parser')
     links = []
     
@@ -74,10 +105,9 @@ def extract_internal_links(html, base_domain):
         except:
             continue
     
-    return list(set(links))[:15]  # Max 15 pages per site
+    return list(set(links))[:20]
 
 def detect_manufacturing(html, url):
-    """Detect manufacturing indicators"""
     soup = BeautifulSoup(html, 'html.parser')
     for tag in soup(['script', 'style']):
         tag.decompose()
@@ -116,9 +146,8 @@ def detect_manufacturing(html, url):
     return found
 
 async def scrape_page(url, session):
-    """Scrape single page"""
     try:
-        response = await session.get(url, timeout=20.0)
+        response = await session.get(url, timeout=10.0)
         html = response.text
         
         emails = EMAIL_REGEX.findall(html)
@@ -135,33 +164,30 @@ async def scrape_page(url, session):
     except Exception as e:
         return None
 
-async def crawl_business(base_url):
-    """Crawl entire business website"""
-    if not base_url.startswith('http'):
-        base_url = f'https://{base_url}'
+async def crawl_and_update_domain(record):
+    domain = record['domain']
+    record_id = record['id']
     
-    domain = urlparse(base_url).netloc.replace('www.', '')
-    log(f"🔍 Crawling {domain}")
+    base_url = domain if domain.startswith('http') else f'https://{domain}'
+    clean_domain = urlparse(base_url).netloc.replace('www.', '')
+    
+    log(f"🔍 Crawling {clean_domain}")
     
     async with httpx.AsyncClient(follow_redirects=True) as session:
-        # Scrape homepage
         homepage = await scrape_page(base_url, session)
         
         if not homepage:
-            log(f"  ❌ Failed to load {domain}")
-            return create_error_result(base_url, domain)
+            log(f"  ❌ Failed to load {clean_domain}")
+            return
         
-        # Extract internal links
-        internal_links = extract_internal_links(homepage['html'], domain)
+        internal_links = extract_internal_links(homepage['html'], clean_domain)
         log(f"  📄 Found {len(internal_links)} pages to crawl")
         
-        # Scrape all pages
         tasks = [scrape_page(link, session) for link in internal_links]
         results = await asyncio.gather(*tasks)
         
         all_pages = [homepage] + [r for r in results if r]
         
-        # Aggregate data
         agg = {
             'emails': set(),
             'equipment': set(),
@@ -184,84 +210,77 @@ async def crawl_business(base_url):
         
         log(f"  ✅ {len(agg['emails'])} emails | {total_matches} matches | {len(all_pages)} pages")
         
-        return {
-            'url': base_url,
-            'domain': domain,
-            'emails': ', '.join(agg['emails']) if agg['emails'] else '',
-            'equipment_types': ', '.join(agg['equipment']) if agg['equipment'] else '',
-            'brands': ', '.join(agg['brands']) if agg['brands'] else '',
-            'keywords': ', '.join(agg['keywords']) if agg['keywords'] else '',
-            'plastics': ', '.join(agg['plastics']) if agg['plastics'] else '',
-            'metals': ', '.join(agg['metals']) if agg['metals'] else '',
-            'total_matches': total_matches,
-            'pages_scraped': len(all_pages),
-            'enrichment_status': 'completed' if agg['emails'] else 'no_email',
-            'scraped_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        update_data = {
+            'emails': list(agg['emails']) if agg['emails'] else [],
+            'equipment_types': list(agg['equipment']) if agg['equipment'] else [],
+            'brands': list(agg['brands']) if agg['brands'] else [],
+            'keywords': list(agg['keywords']) if agg['keywords'] else [],
+            'materials': {
+                'plastics': list(agg['plastics']) if agg['plastics'] else [],
+                'metals': list(agg['metals']) if agg['metals'] else []
+            },
+            'enrichment_status': 'completed',
+            'enrichment_message': f'Scraped {len(all_pages)} pages, found {len(agg["emails"])} emails',
+            'last_scraped_at': datetime.utcnow().isoformat(),
+            'updated_at': datetime.utcnow().isoformat(),
+            'source_url': base_url
         }
-
-def create_error_result(url, domain):
-    """Create error result"""
-    return {
-        'url': url,
-        'domain': domain,
-        'emails': '',
-        'equipment_types': '',
-        'brands': '',
-        'keywords': '',
-        'plastics': '',
-        'metals': '',
-        'total_matches': 0,
-        'pages_scraped': 0,
-        'enrichment_status': 'error',
-        'scraped_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
+        
+        try:
+            supabase.table('domain_enrich').update(update_data).eq('id', record_id).execute()
+            log(f"  💾 Saved to Supabase")
+        except Exception as e:
+            log(f"  ❌ Error saving: {str(e)}")
 
 async def main():
-    """Main scraper"""
-    log("🚀 MULTI-PAGE MANUFACTURING CRAWLER - CSV MODE")
-    log(f"📅 Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    log("🚀 DOMAIN ENRICHMENT SCRAPER - SUPABASE MODE")
+    log(f"📅 Started at {datetime.utcnow().isoformat()}\n")
     
-    # Read businesses from CSV
-    try:
-        log("📡 Reading businesses.csv...")
-        df = pd.read_csv('businesses.csv')
-        urls = df['url'].tolist()
-        log(f"📊 Found {len(urls)} businesses to process")
-    except Exception as e:
-        log(f"❌ Error reading businesses.csv: {str(e)}")
-        return
+    total_processed = 0
+    batch_number = 0
     
-    # Crawl with concurrency limit
-    semaphore = asyncio.Semaphore(5)  # 5 businesses at once
+    while True:
+        batch_number += 1
+        log(f"\n{'='*60}")
+        log(f"📦 BATCH {batch_number}")
+        log(f"{'='*60}\n")
+        
+        try:
+            log("📡 Fetching pending domains from Supabase...")
+            response = supabase.table('domain_enrich').select('*').eq('enrichment_status', 'pending').limit(500).execute()
+            records = response.data
+            
+            if not records:
+                log(f"\n✅ NO MORE PENDING DOMAINS!")
+                log(f"🎉 TOTAL PROCESSED: {total_processed} domains")
+                break
+                
+            log(f"📊 Found {len(records)} pending domains in this batch\n")
+        except Exception as e:
+            log(f"❌ Error fetching domains: {str(e)}")
+            break
+        
+        semaphore = asyncio.Semaphore(100)
+        
+        async def crawl_with_limit(record):
+            async with semaphore:
+                return await crawl_and_update_domain(record)
+        
+        log("🏭 Starting crawl...\n")
+        tasks = [crawl_with_limit(r) for r in records]
+        await asyncio.gather(*tasks)
+        
+        total_processed += len(records)
+        log(f"\n✅ Batch {batch_number} complete!")
+        log(f"📊 Batch: {len(records)} domains | Total so far: {total_processed} domains")
+        
+        await asyncio.sleep(2)
     
-    async def crawl_with_limit(url):
-        async with semaphore:
-            return await crawl_business(url)
-    
-    log("🏭 Starting crawl...\n")
-    tasks = [crawl_with_limit(url) for url in urls]
-    results = await asyncio.gather(*tasks)
-    
-    # Write to CSV
-    log("\n💾 Saving results to scraped_data.csv...")
-    fieldnames = [
-        'url', 'domain', 'emails', 'equipment_types', 'brands',
-        'keywords', 'plastics', 'metals', 'total_matches',
-        'pages_scraped', 'enrichment_status', 'scraped_at'
-    ]
-    
-    with open('scraped_data.csv', 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(results)
-    
-    success = len([r for r in results if r['emails']])
-    total_pages = sum(r['pages_scraped'] for r in results)
-    
-    log(f"\n🎉 COMPLETE!")
-    log(f"✅ Saved {len(results)} results to scraped_data.csv")
-    log(f"📧 Companies with emails: {success}")
-    log(f"📄 Total pages scraped: {total_pages}")
+    log(f"\n{'='*60}")
+    log(f"🎉 ALL DONE!")
+    log(f"📊 TOTAL PROCESSED: {total_processed} domains")
+    log(f"📦 Total batches: {batch_number}")
+    log(f"{'='*60}\n")
 
 if __name__ == "__main__":
     asyncio.run(main())
