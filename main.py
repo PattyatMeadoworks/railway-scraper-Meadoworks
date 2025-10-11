@@ -525,7 +525,12 @@ performance_stats = {
     'domains_processed': 0,
     'successes': 0,
     'failures': 0,
-    'batch_times': []
+    'batch_times': [],
+    'failure_types': {
+        'dns_failed': 0,
+        'timeout': 0,
+        'blocked': 0
+    }
 }
 
 def log(msg):
@@ -542,6 +547,42 @@ def log_system_stats():
         log(f"   🔌 File Descriptor Limit: {soft} (soft) / {hard} (hard)")
     except Exception as e:
         log(f"📊 System stats unavailable (not critical)")
+
+async def validate_domain_dns(domain):
+    """Quick DNS validation - fails fast for non-existent domains"""
+    try:
+        # Remove protocol and www if present
+        clean_domain = domain.replace('https://', '').replace('http://', '').replace('www.', '')
+        
+        # Try to resolve DNS in 2 seconds
+        await asyncio.wait_for(
+            asyncio.get_event_loop().getaddrinfo(clean_domain, 443, family=0, type=0, proto=0, flags=0),
+            timeout=2.0
+        )
+        return True
+    except (asyncio.TimeoutError, OSError):
+        return False
+    except Exception:
+        return False
+
+async def quick_connectivity_check(domain, session):
+    """Quick 5-second check if domain responds at all"""
+    clean_domain = domain.replace('https://', '').replace('http://', '').replace('www.', '')
+    
+    url_variations = [
+        f'https://{clean_domain}',
+        f'https://www.{clean_domain}',
+    ]
+    
+    for url in url_variations:
+        try:
+            response = await session.head(url, timeout=5.0, follow_redirects=True)
+            if response.status_code < 500:  # Any response except server error
+                return True, url
+        except:
+            continue
+    
+    return False, None
 
 def is_valid_email(email):
     if email.count('@') != 1:
@@ -621,7 +662,7 @@ async def scrape_page(url, session, retry=0):
     try:
         response = await session.get(
             url, 
-            timeout=10.0,
+            timeout=30.0,
             follow_redirects=True
         )
         
@@ -675,16 +716,63 @@ async def try_url_variations(domain, session):
     return None, None
 
 async def crawl_business(base_url, session):
-    """Crawl entire business website"""
+    """Crawl entire business website with intelligent validation"""
     clean_domain = base_url.replace('https://', '').replace('http://', '').replace('www.', '')
     domain = clean_domain
     log(f"🔍 Crawling {domain}")
     
+    # STEP 1: DNS Pre-validation (2 second check)
+    dns_valid = await validate_domain_dns(domain)
+    if not dns_valid:
+        log(f"  ❌ DNS lookup failed - domain doesn't exist")
+        performance_stats['failures'] += 1
+        performance_stats['failure_types']['dns_failed'] += 1
+        
+        # Save failure to Supabase
+        try:
+            supabase.table('domain_enrich').update({
+                'enrichment_status': 'dns_failed',
+                'last_scraped_at': datetime.now().isoformat()
+            }).eq('domain', domain).execute()
+        except:
+            pass
+        return None
+    
+    # STEP 2: Quick connectivity check (5 second check)
+    is_responsive, working_url = await quick_connectivity_check(domain, session)
+    if not is_responsive:
+        log(f"  ❌ No response - domain unresponsive")
+        performance_stats['failures'] += 1
+        performance_stats['failure_types']['timeout'] += 1
+        
+        # Save failure to Supabase
+        try:
+            supabase.table('domain_enrich').update({
+                'enrichment_status': 'timeout',
+                'last_scraped_at': datetime.now().isoformat()
+            }).eq('domain', domain).execute()
+        except:
+            pass
+        return None
+    
+    log(f"  ✅ Domain validated, starting full crawl...")
+    
+    # STEP 3: Full crawl with 30s timeout (now we know it works!)
     homepage, successful_url = await try_url_variations(domain, session)
     
     if not homepage:
-        log(f"  ❌ Failed to load {domain} (tried all URL variations)")
+        log(f"  ❌ Failed to load content")
         performance_stats['failures'] += 1
+        performance_stats['failure_types']['blocked'] += 1
+        
+        # Save failure to Supabase
+        try:
+            supabase.table('domain_enrich').update({
+                'enrichment_status': 'blocked',
+                'last_scraped_at': datetime.now().isoformat()
+            }).eq('domain', domain).execute()
+        except:
+            pass
         return None
     
     internal_links = extract_internal_links(homepage['html'], domain)
@@ -744,11 +832,12 @@ async def crawl_business(base_url, session):
 
 async def main():
     """Main scraper with aggressive performance testing"""
-    log("🚀 DOMAIN ENRICHMENT SCRAPER v7.3 - MAXIMUM PERFORMANCE MODE")
+    log("🚀 DOMAIN ENRICHMENT SCRAPER v7.4 - OPTIMIZED & INTELLIGENT")
     log(f"📅 Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     log(f"🔥 CONCURRENCY: 300 (HIGH PERFORMANCE)")
-    log(f"⏱️  TIMEOUT: 30s per request")
-    log(f"📄 PAGES: Up to 20 per domain\n")
+    log(f"⏱️  TIMEOUT: Progressive (5s quick check, 30s full crawl)")
+    log(f"📄 PAGES: Up to 20 per domain")
+    log(f"🧠 FEATURES: DNS pre-validation, duplicate prevention, smart failures\n")
     
     performance_stats['start_time'] = datetime.now()
     
@@ -770,13 +859,17 @@ async def main():
         log("📡 Fetching pending domains from Supabase...")
         response = supabase.table('domain_enrich').select('domain').eq('enrichment_status', 'pending').limit(500).execute()
         
-        domains = [row['domain'] for row in response.data if row.get('domain')]
+        # CRITICAL: Remove duplicates and filter invalid domains
+        raw_domains = [row['domain'] for row in response.data if row.get('domain')]
+        domains = list(set([d.strip().lower() for d in raw_domains if d and d.strip()]))  # Deduplicate!
         
         if not domains:
             log("\n🎉 ALL DOMAINS PROCESSED!")
             break
         
-        log(f"📊 Found {len(domains)} pending domains in this batch\n")
+        log(f"📊 Found {len(raw_domains)} raw domains → {len(domains)} unique domains after deduplication\n")
+        if len(raw_domains) != len(domains):
+            log(f"⚠️  Removed {len(raw_domains) - len(domains)} duplicate domains from batch\n")
         log("🏭 Starting crawl...\n")
         
         # Create ONE shared client for the entire batch
@@ -790,7 +883,7 @@ async def main():
                 'Connection': 'keep-alive',
                 'Upgrade-Insecure-Requests': '1'
             },
-            timeout=httpx.Timeout(10.0, connect=10.0),
+            timeout=httpx.Timeout(30.0, connect=10.0),
             limits=httpx.Limits(max_connections=350, max_keepalive_connections=75)  # INCREASED FOR 300 CONCURRENT
         ) as session:
             
@@ -850,6 +943,12 @@ async def main():
     log(f"📊 Total domains: {total_processed}")
     log(f"✅ Successes: {performance_stats['successes']}")
     log(f"❌ Failures: {performance_stats['failures']}")
+    log(f"")
+    log(f"📋 Failure Breakdown:")
+    log(f"   🔍 DNS Failed: {performance_stats['failure_types']['dns_failed']} ({performance_stats['failure_types']['dns_failed']/performance_stats['failures']*100:.1f}%)" if performance_stats['failures'] > 0 else "   🔍 DNS Failed: 0")
+    log(f"   ⏱️  Timeout: {performance_stats['failure_types']['timeout']} ({performance_stats['failure_types']['timeout']/performance_stats['failures']*100:.1f}%)" if performance_stats['failures'] > 0 else "   ⏱️  Timeout: 0")
+    log(f"   🚫 Blocked: {performance_stats['failure_types']['blocked']} ({performance_stats['failure_types']['blocked']/performance_stats['failures']*100:.1f}%)" if performance_stats['failures'] > 0 else "   🚫 Blocked: 0")
+    log(f"")
     log(f"🚀 Average speed: {(total_processed/total_time)*60:.1f} domains/minute")
 
 if __name__ == "__main__":
