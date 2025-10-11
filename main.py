@@ -1,69 +1,520 @@
 import asyncio
 import httpx
 from bs4 import BeautifulSoup
-from supabase import create_client, Client
-import os
 import re
 from datetime import datetime
 from urllib.parse import urlparse
 import sys
+import os
+from supabase import create_client, Client
 
-# ===== SUPABASE CREDENTIALS FROM ENV =====
-SUPABASE_URL = os.getenv('SUPABASE_URL')
-SUPABASE_KEY = os.getenv('SUPABASE_KEY')
+# Supabase credentials
+SUPABASE_URL = os.getenv("SUPABASE_URL", "YOUR_SUPABASE_URL_HERE")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "YOUR_SUPABASE_KEY_HERE")
 
+# Initialize Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# MANUFACTURING EQUIPMENT & MATERIALS DETECTOR v7.0
+# Complete equipment types (200+) - Matching N8N v7.0
 EQUIPMENT_TYPES = [
+    # CNC Machining - General & Service terms
     '5-axis machining', '4-axis machining', '3-axis machining', 'multi-axis machining',
-    'cnc machining services', 'cnc machining capabilities', 'precision machining',
-    'cnc turning', 'cnc turning services', 'cnc milling', 'cnc milling services',
-    'swiss machining', 'swiss-type machining', 'vertical machining center',
-    'laser cutting', 'laser cutting services', 'fiber laser cutting',
-    'waterjet cutting', 'press brake', 'metal forming', 'bending services',
-    'sheet metal fabrication', 'metal fabrication', 'welding', 'mig welding', 'tig welding',
-    'wire edm', 'sinker edm', 'grinding', 'precision grinding',
-    'metal stamping', 'progressive die stamping', 'tool and die',
-    'die casting', 'investment casting', 'sand casting',
-    'injection molding', 'plastic injection molding', 'insert molding', 'overmolding',
-    'two-shot molding', '2k molding', 'lsr molding', 'micro molding',
-    'extrusion', 'plastic extrusion', 'blow molding', 'thermoforming',
-    'rotomolding', 'compression molding', '3d printing', 'additive manufacturing'
+    'cnc machining services', 'cnc machining capabilities', 'precision machining', 'precision machining services',
+    'cnc turning', 'cnc turning services', 'cnc turning capabilities',
+    'cnc milling', 'cnc milling services', 'cnc milling capabilities',
+    'swiss machining', 'swiss-type machining', 'swiss machining services', 'swiss screw machining',
+    'vertical machining center', 'horizontal machining center',
+    'turning services', 'milling services', 'machining services', 'precision turning',
+    'live tooling', 'live tooling capabilities',
+    
+    # Laser Cutting - General & Service terms
+    'laser cutting', 'laser cutting services', 'laser cutting capabilities',
+    'fiber laser cutting', 'fiber laser cutting services',
+    'co2 laser cutting', 'co2 laser cutting services',
+    'tube laser cutting', 'tube laser cutting services',
+    '3d laser cutting', 'laser cutting and fabrication', 'metal laser cutting',
+    
+    # Waterjet Cutting - General & Service terms
+    'waterjet cutting', 'waterjet cutting services', 'waterjet cutting capabilities',
+    'abrasive waterjet cutting', 'water jet cutting',
+    
+    # Press Brake & Forming - General & Service terms
+    'press brake', 'press brake services', 'press brake capabilities',
+    'metal forming', 'metal forming services', 'metal forming capabilities',
+    'bending services', 'cnc bending', 'precision bending', 'precision bending services',
+    'brake press services',
+    
+    # Sheet Metal Fabrication
+    'sheet metal fabrication', 'sheet metal fabrication services',
+    'sheet metal services', 'metal fabrication', 'metal fabrication services',
+    'custom metal fabrication',
+    'cnc punching', 'cnc punching services', 'turret punching', 'turret punching services',
+    'punching capabilities',
+    
+    # Welding - General & Service terms
+    'welding', 'welding services', 'welding capabilities',
+    'mig welding', 'mig welding services',
+    'tig welding', 'tig welding services',
+    'robotic welding', 'robotic welding services', 'robotic welding capabilities',
+    'laser welding', 'laser welding services',
+    'spot welding', 'arc welding', 'arc welding services',
+    
+    # EDM - General & Service terms
+    'wire edm', 'wire edm services', 'wire edm capabilities',
+    'sinker edm', 'sinker edm services',
+    'ram edm', 'ram edm services',
+    'edm services', 'edm capabilities',
+    'electrical discharge machining',
+    
+    # Grinding - General & Service terms
+    'grinding', 'grinding services', 'grinding capabilities',
+    'precision grinding', 'precision grinding services',
+    'surface grinding', 'surface grinding services',
+    'cylindrical grinding', 'cylindrical grinding services',
+    'centerless grinding', 'centerless grinding services',
+    
+    # Stamping & Die - General & Service terms
+    'metal stamping', 'metal stamping services', 'metal stamping capabilities',
+    'progressive die stamping', 'stamping', 'stamping services', 'stamping capabilities',
+    'tool and die', 'tool and die services', 'tool and die capabilities',
+    'mold making', 'mold making services', 'tooling', 'tooling services',
+    'die making', 'die making services',
+    
+    # Casting - General & Service terms
+    'die casting', 'die casting services', 'die casting capabilities',
+    'investment casting', 'investment casting services',
+    'sand casting', 'sand casting services',
+    'aluminum die casting', 'aluminum die casting services',
+    'casting', 'casting services', 'casting capabilities',
+    
+    # Injection Molding - General & Service terms
+    'injection molding', 'injection molding services', 'injection molding capabilities',
+    'custom injection molding', 'contract molding', 'contract molding services',
+    'plastic injection molding', 'plastic injection',
+    'insert molding', 'insert molding services', 'insert molding capabilities',
+    'overmolding', 'overmolding services', 'overmolding capabilities',
+    'two-shot molding', 'two-shot molding services', 'two-shot injection molding',
+    '2k molding', '2-shot molding',
+    'multi-component molding', 'multi-shot molding',
+    'lsr molding', 'lsr molding services', 'liquid silicone rubber molding',
+    'micro molding', 'micro molding services',
+    
+    # Extrusion - General & Service terms
+    'extrusion', 'extrusion services', 'extrusion capabilities',
+    'profile extrusion', 'profile extrusion services',
+    'pipe extrusion', 'pipe extrusion services',
+    'sheet extrusion', 'sheet extrusion services',
+    'plastic extrusion', 'plastic extrusion services',
+    'blown film', 'blown film extrusion',
+    'co-extrusion', 'co-extrusion services',
+    
+    # Blow Molding - General & Service terms
+    'blow molding', 'blow molding services', 'blow molding capabilities',
+    'extrusion blow molding', 'extrusion blow molding services',
+    'injection blow molding', 'injection blow molding services',
+    'stretch blow molding', 'stretch blow molding services',
+    'pet blow molding', 'bottle manufacturing',
+    
+    # Thermoforming - General & Service terms
+    'thermoforming', 'thermoforming services', 'thermoforming capabilities',
+    'vacuum forming', 'vacuum forming services',
+    'pressure forming', 'pressure forming services',
+    'heavy gauge thermoforming', 'thin gauge thermoforming',
+    
+    # Rotomolding - General & Service terms
+    'rotomolding', 'rotomolding services', 'rotomolding capabilities',
+    'rotational molding', 'rotational molding services',
+    'roto molding',
+    
+    # Compression Molding - General & Service terms
+    'compression molding', 'compression molding services', 'compression molding capabilities',
+    'smc molding', 'bmc molding', 'composite molding',
+    
+    # Additive Manufacturing - General & Service terms
+    '3d printing', '3d printing services', '3d printing capabilities',
+    'additive manufacturing', 'additive manufacturing services', 'additive manufacturing capabilities',
+    'metal 3d printing', 'metal 3d printing services',
+    'rapid prototyping', 'rapid prototyping services', 'prototype development'
 ]
 
+# Equipment brands (300+) - Matching N8N v7.0
 BRANDS = [
-    'haas', 'mazak', 'dmg mori', 'okuma', 'makino', 'fanuc', 'brother',
-    'doosan', 'hermle', 'chiron', 'trumpf', 'amada', 'bystronic', 'prima power',
-    'omax', 'jet edge', 'accurpress', 'ermaksan', 'miller', 'lincoln electric',
-    'sodick', 'charmilles', 'engel', 'arburg', 'haitian', 'sumitomo demag', 'nissei',
-    'husky', 'milacron', 'krauss maffei', 'boy', 'chen hsong', 'davis-standard',
-    'coperion', 'battenfeld-cincinnati', 'kautex', 'bekum', 'uniloy', 'jomar',
-    'sidel', 'brown machine', 'illig', 'kiefel', 'persico', 'ferry', 'stratasys',
-    '3d systems', 'eos', 'formlabs', 'novatec', 'motan', 'maguire', 'matsui', 'piovan'
+    # CNC Machine Tools & Machining Centers
+    'haas', 'haas automation', 'mazak', 'yamazaki mazak', 'dmg mori', 'mori seiki', 
+    'okuma', 'makino', 'fanuc', 'brother', 'nakamura', 'nakamura-tome', 'matsuura', 
+    'kitamura', 'toyoda', 'jtekt', 'tsugami', 'star micronics', 'citizen machinery', 
+    'miyano', 'takisawa', 'wasino', 'forest line', 'enshu', 'johnford', 'femco',
+    'hardinge', 'fadal', 'hurco', 'tree', 'bridgeport', 'mag', 'methods machine', 
+    'milltronics', 'tormach', 'sharp', 'dmg', 'gildemeister', 'maho', 'deckel', 
+    'hermle', 'chiron', 'spinner', 'emag', 'grob', 'starrag', 'studer', 'kellenberger', 
+    'schaublin', 'mikron', 'willemin-macodel', 'reiden', 'fehlmann', 'fidia', 'anayak',
+    'doosan', 'hyundai wia', 'kia', 'smec', 'hwacheon', 'yama seiki', 'daewoo',
+    'dmtg', 'shenyang', 'dalian', 'qinchuan', 'cncpros', 'gf machining', 'kern',
+    
+    # Laser Cutting Systems
+    'trumpf', 'amada', 'bystronic', 'mazak optonics', 'prima power', 'mitsubishi',
+    'mitsubishi electric', 'lvd', 'salvagnini', 'han\'s laser', 'hans laser', 
+    'huagong tech', 'bodor', 'hymson', 'hsg laser', 'penta laser', 'yawei', 
+    'senfeng', 'raycus', 'max photonics', 'jpt', 'coherent', 'ipg photonics', 
+    'rofin', 'trumpf laser', 'bystronic laser', '3d photonics', '4jet',
+    
+    # Waterjet Cutting
+    'omax', 'jet edge', 'wardjet', 'waterjet corporation', 'techni waterjet', 
+    'kmt', 'hypertherm', 'esab', 'koike aronson', 'accustream', 'dardi', 
+    'waterjet sweden', 'resato',
+    
+    # Press Brakes & Bending
+    'accurpress', 'ermaksan', 'durma', 'safan darley', 'wysong', 'gasparini', 
+    'haco', 'baykal', 'dener', 'colgar', 'warcom', 'accurl', 'baileigh',
+    'cincinnati', 'jmt usa', 'harsle', 'toyokoki', 'adh machine',
+    'wilson tool', 'wila', 'mate precision', 'promecam', 'trumpf tools',
+    
+    # Shearing Machines
+    'accurshear', 'betenbender', 'guifil', 'standard industrial',
+    
+    # Welding Equipment
+    'miller', 'miller electric', 'lincoln electric', 'lincoln', 'hobart',
+    'fronius', 'kemppi', 'kjellberg', '2k welding', 'abicor binzel',
+    
+    # Robotics & Automation
+    'panasonic', 'yaskawa', 'motoman', 'fanuc robotics', 'abb robotics', 'kuka',
+    'abb', 'otc daihen', 'cloos', 'igm robotics', 'kawasaki', 'abagy', 'agt robotics',
+    
+    # EDM (Electrical Discharge Machining)
+    'sodick', 'charmilles', 'agie', 'agie charmilles', 'aristech', 'mc machinery', 
+    'japax', 'joemars', 'ona', 'novick', 'accutex', 'chmer',
+    
+    # Grinding Machines
+    'chevalier', 'kent', 'mitsui', 'jones & shipman', 'boyar schultz', 
+    'walter', 'anca', 'reid', 'brown & sharpe', 'thompson', 'landis', 'junker', 
+    'kapp', 'agathon',
+    
+    # Turret Punch & Fabrication
+    'strippit', 'finn-power', 'murata', 'wiedemann',
+    
+    # Stamping & Presses
+    'aida', 'komatsu', 'schuler', 'bruderer', 'minster', 'danly', 'verson',
+    'clearing', 'niagara', 'bliss', 'arisa', 'chin fong', 'seyi', 'hpm',
+    
+    # Casting & Foundry
+    'inductotherm', 'meltech', 'disa', 'loramendi', 'hunter', 'italpresse',
+    'buhler', 'toshiba', 'idra', 'ube', 'toyo', 'frech',
+    
+    # Tooling & Workholding
+    'esi', 'erowa', 'system 3r', 'schunk', 'lang', 'vero-s', 'hainbuch', 'rohm',
+    'kitagawa', 'bison', 'buck chuck',
+    
+    # Injection Molding Machines
+    'engel', 'arburg', 'haitian', 'haitian international', 'sumitomo', 
+    'sumitomo demag', 'nissei', 'nissei plastic', 'husky', 'wittmann battenfeld', 
+    'battenfeld', 'boy', 'boy machines', 'milacron', 'toshiba machine', 
+    'shibaura machine', 'chen hsong', 'krauss maffei', 'kraussmaffei', 
+    'fanuc roboshot', 'jsw', 'japan steel works', 'negri bossi', 'fu chun shin', 
+    'log machine', 'dakumar', 'yizumi', 'tederic', 'bole machinery', 'zhafir', 
+    'tianjian', 'demag', 'ferromatik', 'ferromatik milacron', 'van dorn', 
+    'netstal', 'sandretto', 'borch', 'guangzhou guanxin', 'guanxin',
+    
+    # Extrusion Equipment
+    'davis-standard', 'davis standard', 'american kuhne', 'cincinnati milacron',
+    'graham engineering', 'macro engineering', 'gloucester engineering', 
+    'battenfeld-cincinnati', 'battenfeld cincinnati', 'leistritz', 'coperion', 
+    'berstorff', 'reifenhauser', 'reifenhäuser', 'windmoller', 'windmöller & hölscher', 
+    'w&h', 'bandera', 'starlinger', 'omipa', 'coperion', 'kraussmaffei berstorff',
+    'bausano', 'entek', 'nfm welding engineers', 'amut', 'kailida', 'steer engineering',
+    'buss', 'windsor machines', 'kabra extrusiontechnik', 'sml maschinengesellschaft',
+    'akron extruders', 'welex', 'conair', 'rdn', 'gala', 'maag', 'zerma', 'nrm',
+    'diamond america', 'cds', 'eds', 'polytruder', 'greiner', 'american maplan',
+    'gloucester', 'erema', 'ngr', 'gamma meccanica', 'kreyenborg', 'reduction engineering',
+    
+    # Blow Molding Machines
+    'kautex', 'kautex maschinenbau', 'bekum', 'bekum america', 'uniloy', 
+    'wilmington', 'magic', 'magic mp', 'jomar', 'techne', 'techne packaging',
+    'graham', 'r&b plastics', 'plastiblow', 'parker plastic', 'rocheleau',
+    'sidel', 'khs', 'corpoplast', 'sipa', 'meccanoplastica', 'st blowmoulding',
+    'aoki', 'nissei asb', 'asb', 'bestar', 'meper', 'battenfeld fischer',
+    'hayssen', 'impco', 'hartig', 'sterling', 'krupp', 'akei', 'ads', '1blow',
+    'siapi', 'flexblow', 'pet technologies', 'turn machine', 'fong kee', 'fki',
+    'canmold', 'liberty', 'sika',
+    
+    # Thermoforming Machines
+    'brown machine', 'illig', 'gabler', 'geiss', 'multivac', 'kiefel',
+    'formed plastics', 'gn thermoforming', 'wm thermoforming', 'jornen machinery',
+    'honghua machinery', 'litai machinery', 'utien pack', 'tz machinery',
+    'qingdao xinbeneng', 'asano laboratories', 'comi', 'scm group', 'frimo',
+    'qs group', 'irwin', 'maac machinery', 'sencorp', 'scandivac', 'agripak',
+    'veripack', 'hamer', 'sencorpwhite', 'zed industries', 'colimatic', 'bmb',
+    'plax', 'cannon', 'cmi', 'lyle',
+    
+    # Rotational Molding
+    'persico', 'ferry', 'polivinil', 'caccia', 'rotomachinery', 'fixopan',
+    'rotoline', 'reinhardt', 'shuttle', 'rotomachinery group',
+    
+    # Compression Molding
+    'maplan', 'wabash', 'carver', 'french oil', 'dake', 'tung yu', 'rei',
+    'daniels', 'greenerd', 'beckwood', 'manning',
+    
+    # 3D Printing & Additive Manufacturing
+    'stratasys', '3d systems', 'hp', 'eos', 'formlabs', 'ultimaker', 'markforged',
+    'carbon', 'prusa', 'desktop metal', 'velo3d', 'slm solutions', 'renishaw',
+    'concept laser', 'arcam', 'ge additive', '3d.aero',
+    
+    # Auxiliary Equipment & Material Handling
+    'conair', 'novatec', 'motan', 'maguire', 'matsui', 'piovan', 'wittmann',
+    'sterling', 'dri-air', 'thermal care', 'advantage engineering', 'aec',
+    'auger', 'bd machinery', 'colortronic', 'doteco'
 ]
 
+# Plastics (200+) - Matching N8N v7.0
 PLASTICS = [
-    'pet', 'hdpe', 'ldpe', 'pp', 'polypropylene', 'pvc', 'abs', 'nylon', 'polyamide',
-    'pa6', 'pa66', 'pc', 'polycarbonate', 'lexan', 'pom', 'acetal', 'delrin',
-    'petg', 'peek', 'ultem', 'pei', 'pps', 'ryton', 'ptfe', 'teflon',
-    'tpe', 'tpu', 'lsr', 'liquid silicone rubber', 'rpet', 'recycled pet'
+    # Commodity Plastics
+    'pet', 'pete', 'polyethylene terephthalate',
+    'hdpe', 'high-density polyethylene', 'high density polyethylene',
+    'ldpe', 'low-density polyethylene', 'low density polyethylene',
+    'lldpe', 'linear low-density polyethylene', 'linear low density polyethylene',
+    'pp', 'polypropylene', 'homopolymer pp', 'copolymer pp',
+    'ps', 'polystyrene', 'hips', 'high impact polystyrene',
+    'pvc', 'polyvinyl chloride', 'rigid pvc', 'flexible pvc',
+    'eva', 'ethylene vinyl acetate',
+    
+    # Engineering Plastics
+    'abs', 'acrylonitrile butadiene styrene',
+    'pa', 'nylon', 'polyamide', 'pa6', 'pa66', 'pa6/6', 'pa6/12', 'pa11', 'pa12',
+    'nylon 6', 'nylon 66', 'nylon 6/6', 'nylon 6/12', 'nylon 11', 'nylon 12',
+    'pc', 'polycarbonate', 'lexan', 'makrolon',
+    'pom', 'acetal', 'delrin', 'polyoxymethylene', 'acetal copolymer', 'acetal homopolymer',
+    'pbt', 'polybutylene terephthalate',
+    'petg', 'pet-g', 'glycol-modified pet', 'glycol modified polyethylene terephthalate',
+    'san', 'styrene acrylonitrile',
+    'asa', 'acrylic styrene acrylonitrile', 'acrylonitrile styrene acrylate',
+    'pmma', 'acrylic', 'plexiglass', 'acrylic resin',
+    'pc/abs', 'pc abs blend',
+    
+    # High Performance Plastics
+    'peek', 'polyetheretherketone', 'poly ether ether ketone',
+    'pei', 'ultem', 'polyetherimide',
+    'psu', 'polysulfone',
+    'pes', 'polyethersulfone',
+    'ppsu', 'polyphenylsulfone',
+    'pps', 'polyphenylene sulfide', 'ryton',
+    'pai', 'polyamide-imide', 'torlon',
+    'par', 'polyarylate',
+    'lcp', 'liquid crystal polymer',
+    'pvdf', 'polyvinylidene fluoride', 'kynar',
+    'ptfe', 'teflon', 'polytetrafluoroethylene',
+    'pfa', 'perfluoroalkoxy',
+    'fep', 'fluorinated ethylene propylene',
+    
+    # Thermoplastic Elastomers
+    'tpe', 'thermoplastic elastomer',
+    'tpu', 'thermoplastic polyurethane',
+    'tpo', 'thermoplastic olefin',
+    'tpv', 'thermoplastic vulcanizate',
+    'sebs', 'styrene ethylene butylene styrene',
+    'sbs', 'styrene butadiene styrene',
+    
+    # Silicones
+    'lsr', 'liquid silicone rubber', 'liquid injection molding silicone',
+    'hcr', 'high consistency rubber',
+    'rtv', 'room temperature vulcanizing',
+    
+    # Recycled & Sustainable
+    'rpet', 'r-pet', 'recycled pet', 'post-consumer pet',
+    'pcr', 'post-consumer recycled', 'post consumer resin', 'post-consumer resin',
+    'pir', 'post-industrial recycled', 'post-industrial resin',
+    'recycled plastic', 'recycled resin', 'recycled content', 'regrind',
+    'bio-based plastic', 'bioplastic', 'pla', 'polylactic acid',
+    'pha', 'polyhydroxyalkanoate',
+    
+    # General Terms
+    'resin', 'pellets', 'polymer', 'thermoplastic', 'thermoset',
+    'engineering resin', 'commodity resin', 'virgin resin', 'natural resin',
+    'glass-filled', 'glass filled', 'fiber-reinforced', 'fiber reinforced',
+    'carbon fiber reinforced', 'mineral filled',
+    'flame retardant', 'uv stabilized', 'food grade', 'medical grade',
+    'fda approved', 'usp class vi',
+    
+    # Trade Names & Common References
+    'noryl', 'valox', 'xenoy', 'cycoloy', 'zytel', 'hytrel',
+    'duratec', 'grilamid', 'trogamid', 'vestamid', 'radilon',
+    'technyl', 'vydyne', 'akulon', 'stanyl', 'grivory'
 ]
 
+# Metals (200+) - Matching N8N v7.0
 METALS = [
-    'aluminum', '6061', '6061-t6', '7075', '7075-t6', '5052', '2024',
-    'carbon steel', 'alloy steel', '4140', '4340', '1018', '1045',
-    'stainless steel', '304', '316', '303', '17-4', '17-4 ph',
-    '304l', '316l', 'duplex stainless', 'brass', 'bronze', 'copper',
-    'titanium', 'ti-6al-4v', 'inconel', 'hastelloy', 'monel'
+    # Aluminum Alloys
+    'aluminum', 'aluminium', 'aluminum alloy', 'aluminium alloy', 'al alloy',
+    '6061', '6061-t6', '6061-t4', '6061 aluminum',
+    '6063', '6063-t5', '6063-t6', '6063 aluminum',
+    '7075', '7075-t6', '7075-t73', '7075 aluminum',
+    '5052', '5052 aluminum', '5083', '5083 aluminum',
+    '6082', '6082 aluminum', '7050', '7050 aluminum',
+    '2024', '2024-t3', '2024-t4', '2024 aluminum',
+    '3003', '3003 aluminum', '5086', '5086 aluminum',
+    '7050', '7050 aluminum', '2011', '2011 aluminum',
+    'cast aluminum', 'a356', 'a380', 'a383', 'aluminum casting',
+    'mic-6', 'mic6', 'aluminum tooling plate',
+    
+    # Carbon & Alloy Steel
+    'carbon steel', 'mild steel', 'low carbon steel',
+    'alloy steel', 'tool steel', 'spring steel',
+    '4140', '4140 steel', '4340', '4340 steel',
+    '1018', '1018 steel', '1045', '1045 steel',
+    'a36', 'a36 steel', 'a572', 'a572 steel',
+    's355', 's355 steel', 'ck45', 'ck45 steel',
+    '1020', '1020 steel', '1215', '1215 steel',
+    '12l14', '12l14 steel', 'free machining steel',
+    '8620', '8620 steel', '4130', '4130 steel',
+    'a2 tool steel', 'd2 tool steel', 'o1 tool steel',
+    'm2 tool steel', 'h13 tool steel', 's7 tool steel',
+    
+    # Stainless Steel - Austenitic
+    'stainless steel', 'stainless', '304 stainless', '316 stainless',
+    '303 stainless', '17-4 stainless', '17-4 ph', '17-4 ph stainless',
+    '304l', '304l stainless', '316l', '316l stainless',
+    '321 stainless', '310 stainless', '309 stainless',
+    '305 stainless', '308 stainless', '347 stainless',
+    '301 stainless', '302 stainless',
+    'austenitic stainless', 'austenitic stainless steel',
+    
+    # Stainless Steel - Ferritic & Martensitic
+    '410 stainless', '416 stainless', '420 stainless',
+    '430 stainless', '440c stainless', '440 stainless',
+    '630 stainless', '15-5 ph', '15-5 ph stainless',
+    '13-8 ph', '13-8 ph stainless',
+    'ferritic stainless', 'martensitic stainless',
+    
+    # Stainless Steel - Duplex
+    'duplex stainless', 'super duplex', 'duplex 2205',
+    '2205 stainless', '2507 stainless',
+    
+    # Brass & Bronze
+    'brass', 'brass alloy', 'c36000', 'c360', 'free-cutting brass',
+    'c260', 'cartridge brass', 'naval brass', 'c464',
+    'bronze', 'bronze alloy', 'phosphor bronze',
+    'aluminum bronze', 'silicon bronze', 'tin bronze',
+    'copper alloy', 'copper', 'c110', 'c101', 'ofhc copper',
+    'beryllium copper', 'beryllium copper alloy', 'c172', 'c17200',
+    
+    # Titanium
+    'titanium', 'titanium alloy', 'ti-6al-4v', 'ti6al4v', 
+    'grade 5 titanium', 'grade 2 titanium', 'grade 23 titanium',
+    'cp titanium', 'commercially pure titanium',
+    'ti-6al-4v eli', 'ti 6-4',
+    
+    # Nickel Alloys & Superalloys
+    'inconel', 'inconel 625', 'inconel 718', 'inconel 600',
+    'inconel 601', 'inconel 617', 'inconel 690',
+    'hastelloy', 'hastelloy c-276', 'hastelloy x', 'hastelloy c-22',
+    'monel', 'monel 400', 'monel k-500',
+    'incoloy', 'incoloy 800', 'incoloy 825',
+    'nickel alloy', 'nickel', 'nickel 200', 'nickel 201',
+    'waspaloy', 'rene 41', 'udimet',
+    'nimonic', 'cobalt alloy', 'superalloy',
+    
+    # Other Metals
+    'magnesium', 'magnesium alloy', 'az31', 'az91',
+    'zinc', 'zinc alloy', 'zamak', 'zamak 3', 'zamak 5',
+    'lead', 'lead alloy',
+    'tin', 'tin alloy',
+    
+    # General Metal Terms
+    'heat-treated', 'heat-treated steel', 'heat treating',
+    'cold-rolled', 'cold-rolled steel', 'hot-rolled', 'hot-rolled steel',
+    'hardened steel', 'annealed', 'normalized',
+    'pickled and oiled', 'p&o steel',
+    'galvanized steel', 'zinc plated', 'zinc coated',
+    'powder coated', 'anodized aluminum', 'anodizing',
+    'chromate conversion', 'alodine',
+    'passivated stainless', 'passivation',
+    'sheet metal', 'plate metal', 'bar stock',
+    'round bar', 'square bar', 'hex bar',
+    'structural steel', 'i-beam', 'channel', 'angle iron',
+    'tube', 'pipe', 'mechanical tubing'
 ]
 
+# Keywords - Matching N8N v7.0
 KEYWORDS = [
-    'cnc', 'machining', 'machine shop', 'mill', 'lathe', 'turning', 'milling',
-    'laser', 'laser cutting', 'waterjet', 'press brake', 'bending', 'welding',
-    'edm', 'grinding', 'stamping', 'casting', 'die casting',
-    'injection molding', 'plastic injection', 'extrusion', 'blow molding',
-    'thermoforming', '3d printing', 'additive manufacturing'
+    # CNC & Machining
+    'cnc', 'machining', 'machine shop', 'machinist', 'mill', 'lathe', 'turning', 'milling',
+    'vmc', 'hmc', '3-axis', '4-axis', '5-axis', 'multi-axis', 'swiss-type',
+    'live tooling', 'cnc lathe', 'cnc mill', 'precision machining',
+    
+    # Laser & Cutting
+    'laser', 'laser cutting', 'fiber laser', 'co2 laser', 'tube laser',
+    'laser engraving', 'laser marking', 'laser welding',
+    
+    # Waterjet
+    'waterjet', 'water jet', 'abrasive jet', 'waterjet cutting',
+    
+    # Press & Forming
+    'press brake', 'bending', 'metal forming', 'forming', 'brake press',
+    'shearing', 'guillotine', 'power shear', 'hydraulic press',
+    
+    # Welding
+    'welding', 'welder', 'weld', 'mig', 'tig', 'arc welding',
+    'spot welding', 'robotic welding', 'weld automation',
+    
+    # EDM
+    'edm', 'electrical discharge', 'wire edm', 'sinker edm', 'ram edm',
+    
+    # Grinding
+    'grinding', 'grinder', 'surface grinder', 'cylindrical grinder',
+    'od grinding', 'id grinding', 'centerless grinding',
+    
+    # Sheet Metal & Fabrication
+    'sheet metal', 'metal fabrication', 'fabrication', 'turret punch', 'punching',
+    'laser cutting', 'metal stamping', 'fab shop',
+    
+    # Stamping & Die
+    'stamping', 'metal stamping', 'progressive die', 'die stamping',
+    'transfer die', 'compound die',
+    
+    # Casting & Foundry
+    'casting', 'foundry', 'die casting', 'sand casting', 'investment casting',
+    'lost wax', 'permanent mold',
+    
+    # Tooling
+    'tooling', 'tool and die', 'mold making', 'die making', 'tool design',
+    'jigs and fixtures',
+    
+    # Plastic Processing - Injection Molding
+    'injection molding', 'plastic injection', 'molding', 'imm',
+    'insert molding', 'overmolding', 'two-shot', '2k molding', '2-shot',
+    'multi-shot', 'micro molding', 'thin wall molding',
+    
+    # Plastic Processing - Extrusion
+    'extrusion', 'extruder', 'plastic extrusion', 'blown film', 'profile extrusion',
+    'pipe extrusion', 'sheet extrusion', 'co-extrusion',
+    
+    # Plastic Processing - Blow Molding
+    'blow molding', 'blow moulding', 'bottle', 'container', 'pet blow',
+    'extrusion blow molding', 'injection blow molding', 'stretch blow molding',
+    
+    # Plastic Processing - Thermoforming
+    'thermoforming', 'vacuum forming', 'pressure forming',
+    'heavy gauge thermoforming', 'thin gauge thermoforming',
+    
+    # Plastic Processing - Rotomolding
+    'rotomolding', 'rotational molding', 'roto molding',
+    
+    # Plastic Processing - Compression Molding
+    'compression molding', 'smc', 'bmc', 'composite molding',
+    
+    # Additive Manufacturing
+    '3d printing', 'additive manufacturing', 'fdm', 'sla', 'sls', 
+    'rapid prototyping', 'metal 3d printing', 'dmls', 'slm',
+    
+    # Quality & Metrology
+    'cmm', 'coordinate measuring', 'inspection', 'quality control',
+    'optical inspection', 'vision system', 'metrology',
+    
+    # Surface Treatment
+    'anodizing', 'plating', 'powder coating', 'painting',
+    'heat treating', 'passivation', 'electropolishing',
+    
+    # Assembly & Secondary
+    'assembly', 'kitting', 'packaging', 'sub-assembly',
+    'ultrasonic welding', 'heat staking', 'press fit'
 ]
 
 EMAIL_REGEX = re.compile(r'\b([a-zA-Z0-9][a-zA-Z0-9._+-]*@[a-zA-Z0-9][a-zA-Z0-9._-]*\.[a-zA-Z]{2,})\b', re.IGNORECASE)
@@ -105,7 +556,7 @@ def extract_internal_links(html, base_domain):
         except:
             continue
     
-    return list(set(links))[:20]
+    return list(set(links))[:20]  # Max 20 pages
 
 def detect_manufacturing(html, url):
     soup = BeautifulSoup(html, 'html.parser')
@@ -145,9 +596,10 @@ def detect_manufacturing(html, url):
     
     return found
 
-async def scrape_page(url, session):
+async def scrape_page(url, session, retry=0):
+    """Scrape single page with retry logic"""
     try:
-        response = await session.get(url, timeout=10.0)
+        response = await session.get(url, timeout=30.0)
         html = response.text
         
         emails = EMAIL_REGEX.findall(html)
@@ -162,25 +614,27 @@ async def scrape_page(url, session):
             'indicators': indicators
         }
     except Exception as e:
+        if retry < 2:
+            await asyncio.sleep(2)
+            return await scrape_page(url, session, retry + 1)
         return None
 
-async def crawl_and_update_domain(record):
-    domain = record['domain']
-    record_id = record['id']
+async def crawl_business(base_url):
+    """Crawl entire business website"""
+    if not base_url.startswith('http'):
+        base_url = f'https://{base_url}'
     
-    base_url = domain if domain.startswith('http') else f'https://{domain}'
-    clean_domain = urlparse(base_url).netloc.replace('www.', '')
-    
-    log(f"🔍 Crawling {clean_domain}")
+    domain = urlparse(base_url).netloc.replace('www.', '')
+    log(f"🔍 Crawling {domain}")
     
     async with httpx.AsyncClient(follow_redirects=True) as session:
         homepage = await scrape_page(base_url, session)
         
         if not homepage:
-            log(f"  ❌ Failed to load {clean_domain}")
-            return
+            log(f"  ❌ Failed to load {domain}")
+            return None
         
-        internal_links = extract_internal_links(homepage['html'], clean_domain)
+        internal_links = extract_internal_links(homepage['html'], domain)
         log(f"  📄 Found {len(internal_links)} pages to crawl")
         
         tasks = [scrape_page(link, session) for link in internal_links]
@@ -210,77 +664,75 @@ async def crawl_and_update_domain(record):
         
         log(f"  ✅ {len(agg['emails'])} emails | {total_matches} matches | {len(all_pages)} pages")
         
-        update_data = {
-            'emails': list(agg['emails']) if agg['emails'] else [],
-            'equipment_types': list(agg['equipment']) if agg['equipment'] else [],
-            'brands': list(agg['brands']) if agg['brands'] else [],
-            'keywords': list(agg['keywords']) if agg['keywords'] else [],
+        result = {
+            'domain': domain,
+            'emails': list(agg['emails']),
+            'equipment_types': list(agg['equipment']),
+            'brands': list(agg['brands']),
+            'keywords': list(agg['keywords']),
             'materials': {
-                'plastics': list(agg['plastics']) if agg['plastics'] else [],
-                'metals': list(agg['metals']) if agg['metals'] else []
+                'plastics': list(agg['plastics']),
+                'metals': list(agg['metals'])
             },
-            'enrichment_status': 'completed',
-            'enrichment_message': f'Scraped {len(all_pages)} pages, found {len(agg["emails"])} emails',
-            'last_scraped_at': datetime.utcnow().isoformat(),
-            'updated_at': datetime.utcnow().isoformat(),
-            'source_url': base_url
+            'enrichment_status': 'completed' if agg['emails'] else 'no_email',
+            'last_scraped_at': datetime.now().isoformat()
         }
         
+        # Save to Supabase
         try:
-            supabase.table('domain_enrich').update(update_data).eq('id', record_id).execute()
+            supabase.table('domain_enrich').update(result).eq('domain', domain).execute()
             log(f"  💾 Saved to Supabase")
         except Exception as e:
-            log(f"  ❌ Error saving: {str(e)}")
+            log(f"  ❌ Failed to save: {str(e)}")
+        
+        return result
 
 async def main():
-    log("🚀 DOMAIN ENRICHMENT SCRAPER - SUPABASE MODE")
-    log(f"📅 Started at {datetime.utcnow().isoformat()}\n")
+    """Main scraper"""
+    log("🚀 DOMAIN ENRICHMENT SCRAPER v7.0 - SUPABASE MODE")
+    log(f"📅 Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
+    batch_num = 1
     total_processed = 0
-    batch_number = 0
     
     while True:
-        batch_number += 1
         log(f"\n{'='*60}")
-        log(f"📦 BATCH {batch_number}")
+        log(f"📦 BATCH {batch_num}")
         log(f"{'='*60}\n")
         
-        try:
-            log("📡 Fetching pending domains from Supabase...")
-            response = supabase.table('domain_enrich').select('*').eq('enrichment_status', 'pending').limit(500).execute()
-            records = response.data
-            
-            if not records:
-                log(f"\n✅ NO MORE PENDING DOMAINS!")
-                log(f"🎉 TOTAL PROCESSED: {total_processed} domains")
-                break
-                
-            log(f"📊 Found {len(records)} pending domains in this batch\n")
-        except Exception as e:
-            log(f"❌ Error fetching domains: {str(e)}")
+        # Fetch pending domains
+        log("📡 Fetching pending domains from Supabase...")
+        response = supabase.table('domain_enrich').select('domain').eq('enrichment_status', 'pending').limit(500).execute()
+        
+        domains = [row['domain'] for row in response.data if row.get('domain')]
+        
+        if not domains:
+            log("\n🎉 ALL DOMAINS PROCESSED!")
             break
         
-        semaphore = asyncio.Semaphore(100)
-        
-        async def crawl_with_limit(record):
-            async with semaphore:
-                return await crawl_and_update_domain(record)
-        
+        log(f"📊 Found {len(domains)} pending domains in this batch\n")
         log("🏭 Starting crawl...\n")
-        tasks = [crawl_with_limit(r) for r in records]
+        
+        # Process with semaphore
+        semaphore = asyncio.Semaphore(30)
+        results = []
+        
+        async def crawl_with_limit(domain):
+            async with semaphore:
+                result = await crawl_business(f'https://{domain}')
+                if result:
+                    results.append(result)
+                return result
+        
+        tasks = [crawl_with_limit(domain) for domain in domains]
         await asyncio.gather(*tasks)
         
-        total_processed += len(records)
-        log(f"\n✅ Batch {batch_number} complete!")
-        log(f"📊 Batch: {len(records)} domains | Total so far: {total_processed} domains")
+        total_processed += len(domains)
         
-        await asyncio.sleep(2)
-    
-    log(f"\n{'='*60}")
-    log(f"🎉 ALL DONE!")
-    log(f"📊 TOTAL PROCESSED: {total_processed} domains")
-    log(f"📦 Total batches: {batch_number}")
-    log(f"{'='*60}\n")
+        log(f"\n✅ Batch {batch_num} complete!")
+        log(f"📊 Batch: {len(domains)} domains | Total so far: {total_processed} domains\n")
+        
+        batch_num += 1
 
 if __name__ == "__main__":
     asyncio.run(main())
