@@ -6,7 +6,6 @@ from datetime import datetime
 from urllib.parse import urlparse
 import sys
 import os
-import psutil  # For monitoring system resources
 from supabase import create_client, Client
 
 # Supabase credentials
@@ -534,33 +533,15 @@ def log(msg):
     sys.stdout.flush()
 
 def log_system_stats():
-    """Log current system resource usage"""
+    """Log basic performance stats without psutil"""
     try:
-        process = psutil.Process()
-        
-        # Memory info
-        mem_info = process.memory_info()
-        mem_mb = mem_info.rss / 1024 / 1024
-        
-        # CPU info
-        cpu_percent = process.cpu_percent(interval=0.1)
-        
-        # File descriptors (connections)
-        try:
-            num_fds = process.num_fds()
-        except:
-            num_fds = "N/A (Windows)"
-        
-        # System-wide memory
-        system_mem = psutil.virtual_memory()
-        
+        import resource
+        # Get file descriptor limit
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
         log(f"📊 SYSTEM STATS:")
-        log(f"   💾 Memory: {mem_mb:.1f}MB / {system_mem.total/1024/1024/1024:.1f}GB total ({system_mem.percent}% used)")
-        log(f"   🔌 File Descriptors: {num_fds}")
-        log(f"   🖥️  CPU: {cpu_percent}%")
-        
+        log(f"   🔌 File Descriptor Limit: {soft} (soft) / {hard} (hard)")
     except Exception as e:
-        log(f"⚠️  Could not get system stats: {e}")
+        log(f"📊 System stats unavailable (not critical)")
 
 def is_valid_email(email):
     if email.count('@') != 1:
