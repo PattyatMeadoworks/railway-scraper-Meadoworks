@@ -599,7 +599,19 @@ def detect_manufacturing(html, url):
 async def scrape_page(url, session, retry=0):
     """Scrape single page with retry logic"""
     try:
-        response = await session.get(url, timeout=30.0)
+        response = await session.get(
+            url, 
+            timeout=30.0,
+            follow_redirects=True
+        )
+        
+        # Check if we got a valid response
+        if response.status_code >= 400:
+            if retry < 2:
+                await asyncio.sleep(2)
+                return await scrape_page(url, session, retry + 1)
+            return None
+            
         html = response.text
         
         emails = EMAIL_REGEX.findall(html)
@@ -613,83 +625,110 @@ async def scrape_page(url, session, retry=0):
             'emails': emails,
             'indicators': indicators
         }
-    except Exception as e:
+    except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError) as e:
+        # Connection/timeout errors - retry
         if retry < 2:
             await asyncio.sleep(2)
             return await scrape_page(url, session, retry + 1)
         return None
+    except Exception as e:
+        # Other errors - don't retry, just fail
+        return None
 
-async def crawl_business(base_url):
-    """Crawl entire business website"""
-    if not base_url.startswith('http'):
-        base_url = f'https://{base_url}'
+async def try_url_variations(domain, session):
+    """Try multiple URL variations to find one that works"""
+    # Remove www. and protocol if present
+    clean_domain = domain.replace('https://', '').replace('http://', '').replace('www.', '')
     
-    domain = urlparse(base_url).netloc.replace('www.', '')
+    # Try different URL variations in order of likelihood
+    url_variations = [
+        f'https://{clean_domain}',           # Try HTTPS without www first
+        f'https://www.{clean_domain}',       # Try HTTPS with www
+        f'http://{clean_domain}',            # Try HTTP without www
+        f'http://www.{clean_domain}',        # Try HTTP with www
+    ]
+    
+    for url in url_variations:
+        try:
+            result = await scrape_page(url, session)
+            if result:
+                log(f"  ✅ Successfully connected using: {url}")
+                return result, url
+        except:
+            continue
+    
+    return None, None
+
+async def crawl_business(base_url, session):  # NOW TAKES SESSION AS PARAMETER
+    """Crawl entire business website"""
+    # Extract clean domain
+    clean_domain = base_url.replace('https://', '').replace('http://', '').replace('www.', '')
+    domain = clean_domain
     log(f"🔍 Crawling {domain}")
     
-    async with httpx.AsyncClient(follow_redirects=True) as session:
-        homepage = await scrape_page(base_url, session)
-        
-        if not homepage:
-            log(f"  ❌ Failed to load {domain}")
-            return None
-        
-        internal_links = extract_internal_links(homepage['html'], domain)
-        log(f"  📄 Found {len(internal_links)} pages to crawl")
-        
-        tasks = [scrape_page(link, session) for link in internal_links]
-        results = await asyncio.gather(*tasks)
-        
-        all_pages = [homepage] + [r for r in results if r]
-        
-        agg = {
-            'emails': set(),
-            'equipment': set(),
-            'brands': set(),
-            'keywords': set(),
-            'plastics': set(),
-            'metals': set()
-        }
-        
-        for page in all_pages:
-            if page:
-                agg['emails'].update(page['emails'])
-                agg['equipment'].update(page['indicators']['equipment'])
-                agg['brands'].update(page['indicators']['brands'])
-                agg['keywords'].update(page['indicators']['keywords'])
-                agg['plastics'].update(page['indicators']['plastics'])
-                agg['metals'].update(page['indicators']['metals'])
-        
-        total_matches = sum([len(agg[k]) for k in ['equipment', 'brands', 'keywords', 'plastics', 'metals']])
-        
-        log(f"  ✅ {len(agg['emails'])} emails | {total_matches} matches | {len(all_pages)} pages")
-        
-        result = {
-            'domain': domain,
-            'emails': list(agg['emails']),
-            'equipment_types': list(agg['equipment']),
-            'brands': list(agg['brands']),
-            'keywords': list(agg['keywords']),
-            'materials': {
-                'plastics': list(agg['plastics']),
-                'metals': list(agg['metals'])
-            },
-            'enrichment_status': 'completed' if agg['emails'] else 'no_email',
-            'last_scraped_at': datetime.now().isoformat()
-        }
-        
-        # Save to Supabase
-        try:
-            supabase.table('domain_enrich').update(result).eq('domain', domain).execute()
-            log(f"  💾 Saved to Supabase")
-        except Exception as e:
-            log(f"  ❌ Failed to save: {str(e)}")
-        
-        return result
+    # Try multiple URL variations
+    homepage, successful_url = await try_url_variations(domain, session)
+    
+    if not homepage:
+        log(f"  ❌ Failed to load {domain} (tried all URL variations)")
+        return None
+    
+    internal_links = extract_internal_links(homepage['html'], domain)
+    log(f"  📄 Found {len(internal_links)} pages to crawl")
+    
+    tasks = [scrape_page(link, session) for link in internal_links]
+    results = await asyncio.gather(*tasks)
+    
+    all_pages = [homepage] + [r for r in results if r]
+    
+    agg = {
+        'emails': set(),
+        'equipment': set(),
+        'brands': set(),
+        'keywords': set(),
+        'plastics': set(),
+        'metals': set()
+    }
+    
+    for page in all_pages:
+        if page:
+            agg['emails'].update(page['emails'])
+            agg['equipment'].update(page['indicators']['equipment'])
+            agg['brands'].update(page['indicators']['brands'])
+            agg['keywords'].update(page['indicators']['keywords'])
+            agg['plastics'].update(page['indicators']['plastics'])
+            agg['metals'].update(page['indicators']['metals'])
+    
+    total_matches = sum([len(agg[k]) for k in ['equipment', 'brands', 'keywords', 'plastics', 'metals']])
+    
+    log(f"  ✅ {len(agg['emails'])} emails | {total_matches} matches | {len(all_pages)} pages")
+    
+    result = {
+        'domain': domain,
+        'emails': list(agg['emails']),
+        'equipment_types': list(agg['equipment']),
+        'brands': list(agg['brands']),
+        'keywords': list(agg['keywords']),
+        'materials': {
+            'plastics': list(agg['plastics']),
+            'metals': list(agg['metals'])
+        },
+        'enrichment_status': 'completed' if agg['emails'] else 'no_email',
+        'last_scraped_at': datetime.now().isoformat()
+    }
+    
+    # Save to Supabase
+    try:
+        supabase.table('domain_enrich').update(result).eq('domain', domain).execute()
+        log(f"  💾 Saved to Supabase")
+    except Exception as e:
+        log(f"  ❌ Failed to save: {str(e)}")
+    
+    return result
 
 async def main():
-    """Main scraper"""
-    log("🚀 DOMAIN ENRICHMENT SCRAPER v7.0 - SUPABASE MODE")
+    """Main scraper with proper connection management"""
+    log("🚀 DOMAIN ENRICHMENT SCRAPER v7.1 - SUPABASE MODE")
     log(f"📅 Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     batch_num = 1
@@ -713,24 +752,46 @@ async def main():
         log(f"📊 Found {len(domains)} pending domains in this batch\n")
         log("🏭 Starting crawl...\n")
         
-        # Process with semaphore
-        semaphore = asyncio.Semaphore(30)
-        results = []
+        # Create ONE shared client for the entire batch
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
+            },
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
+        ) as session:
+            
+            # Process with semaphore
+            semaphore = asyncio.Semaphore(30)
+            results = []
+            
+            async def crawl_with_limit(domain):
+                async with semaphore:
+                    result = await crawl_business(f'https://{domain}', session)
+                    if result:
+                        results.append(result)
+                    return result
+            
+            tasks = [crawl_with_limit(domain) for domain in domains]
+            await asyncio.gather(*tasks)
         
-        async def crawl_with_limit(domain):
-            async with semaphore:
-                result = await crawl_business(f'https://{domain}')
-                if result:
-                    results.append(result)
-                return result
-        
-        tasks = [crawl_with_limit(domain) for domain in domains]
-        await asyncio.gather(*tasks)
+        # Session automatically closes here - proper cleanup!
         
         total_processed += len(domains)
         
         log(f"\n✅ Batch {batch_num} complete!")
-        log(f"📊 Batch: {len(domains)} domains | Total so far: {total_processed} domains\n")
+        log(f"📊 Batch: {len(domains)} domains | Total so far: {total_processed} domains")
+        
+        # Cooldown between batches to allow connection cleanup
+        if domains:  # If there were domains in this batch
+            log(f"⏸️  Cooldown: 5 seconds before next batch...\n")
+            await asyncio.sleep(5)
         
         batch_num += 1
 
