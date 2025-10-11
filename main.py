@@ -532,11 +532,10 @@ performance_stats = {
     'failures': 0,
     'batch_times': [],
     'failure_types': {
-        'invalid_format': 0,  # NEW
         'dns_failed': 0,
         'timeout': 0,
         'blocked': 0,
-        'circuit_breaker': 0
+        'error': 0
     }
 }
 
@@ -544,72 +543,26 @@ def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
     sys.stdout.flush()
 
-def log_system_stats():
-    """Log basic performance stats without psutil"""
-    try:
-        import resource
-        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-        log(f"📊 SYSTEM STATS:")
-        log(f"   🔌 File Descriptor Limit: {soft} (soft) / {hard} (hard)")
-    except Exception as e:
-        log(f"📊 System stats unavailable (not critical)")
-
-def validate_domain_format(domain: str) -> bool:
-    """🆕 NEW: Validate domain format BEFORE attempting to crawl"""
+def is_obviously_invalid_domain(domain: str) -> bool:
+    """Quick check for obviously invalid domains - no network calls"""
     if not domain or not domain.strip():
-        return False
+        return True
     
-    # Remove common issues
     domain = domain.strip().lower()
     
-    # Reject obvious bad formats
-    if domain in ['#na', 'n/a', 'na', '']:
-        return False
-    
-    # Reject malformed domains
-    if 'google.comsearch' in domain or 'search?' in domain:
-        return False
-    
-    # Basic domain pattern (letters, numbers, hyphens, dots)
-    domain_pattern = r'^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$'
-    
-    # Clean domain for validation
-    clean_domain = domain.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
-    
-    return bool(re.match(domain_pattern, clean_domain))
-
-async def validate_domain_dns(domain):
-    """Quick DNS validation - fails fast for non-existent domains"""
-    try:
-        clean_domain = domain.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
-        await asyncio.wait_for(
-            asyncio.get_event_loop().getaddrinfo(clean_domain, 443, family=0, type=0, proto=0, flags=0),
-            timeout=2.0
-        )
+    # Reject obvious garbage
+    if domain in ['#na', 'n/a', 'na', '', 'none', 'null']:
         return True
-    except (asyncio.TimeoutError, OSError):
-        return False
-    except Exception:
-        return False
-
-async def quick_connectivity_check(domain, session):
-    """Quick 5-second check if domain responds at all"""
-    clean_domain = domain.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
     
-    url_variations = [
-        f'https://{clean_domain}',
-        f'https://www.{clean_domain}',
-    ]
+    # Reject malformed domains (but be lenient!)
+    if 'google.comsearch' in domain or 'search?' in domain:
+        return True
     
-    for url in url_variations:
-        try:
-            response = await session.head(url, timeout=5.0, follow_redirects=True)
-            if response.status_code < 500:
-                return True, url
-        except:
-            continue
+    # Must have at least one dot
+    if '.' not in domain:
+        return True
     
-    return False, None
+    return False
 
 def is_valid_email(email):
     if email.count('@') != 1:
@@ -687,7 +640,7 @@ def detect_manufacturing(html, url):
 async def scrape_page(url, session, retry=0):
     """Scrape single page with faster timeouts"""
     try:
-        timeout = 8.0 if retry == 0 else 15.0
+        timeout = 10.0 if retry == 0 else 20.0
         
         response = await session.get(
             url, 
@@ -721,9 +674,11 @@ async def scrape_page(url, session, retry=0):
         return None
 
 async def try_url_variations(domain, session):
-    """Try multiple URL variations to find one that works"""
+    """Try multiple URL variations to find one that works - THIS IS THE KEY FUNCTION!"""
     clean_domain = domain.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
     
+    # Try ALL variations: HTTPS first (more common), then HTTP
+    # Try without www first, then with www
     url_variations = [
         f'https://{clean_domain}',
         f'https://www.{clean_domain}',
@@ -735,15 +690,16 @@ async def try_url_variations(domain, session):
         try:
             result = await scrape_page(url, session)
             if result:
-                log(f"  ✅ Successfully connected using: {url}")
+                log(f"  ✅ Connected via: {url}")
                 return result, url
         except:
             continue
     
+    # All variations failed
     return None, None
 
 async def crawl_business(base_url, session):
-    """Crawl with circuit breaker and domain timeout"""
+    """Crawl business with LESS aggressive filtering - try scraping first!"""
     clean_domain = base_url.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
     domain = clean_domain
     
@@ -753,41 +709,28 @@ async def crawl_business(base_url, session):
     
     log(f"🔍 Crawling {domain}")
     
-    # 🆕 STEP 0: Format validation (instant check)
-    if not validate_domain_format(domain):
-        log(f"  ❌ Invalid domain format - skipping")
+    # STEP 1: Quick obvious-garbage check (no network calls!)
+    if is_obviously_invalid_domain(domain):
+        log(f"  ❌ Obviously invalid domain format - skipping")
         performance_stats['failures'] += 1
-        performance_stats['failure_types']['invalid_format'] += 1
+        performance_stats['failure_types']['error'] += 1
         
         try:
             supabase.table('domain_enrich').update({
-                'enrichment_status': 'invalid_format',
+                'enrichment_status': 'error',
                 'last_scraped_at': datetime.now().isoformat()
             }).eq('domain', domain).execute()
         except:
             pass
         return None
     
-    # STEP 1: DNS Pre-validation (2 second check)
-    dns_valid = await validate_domain_dns(domain)
-    if not dns_valid:
-        log(f"  ❌ DNS lookup failed - domain doesn't exist")
-        performance_stats['failures'] += 1
-        performance_stats['failure_types']['dns_failed'] += 1
-        
-        try:
-            supabase.table('domain_enrich').update({
-                'enrichment_status': 'dns_failed',
-                'last_scraped_at': datetime.now().isoformat()
-            }).eq('domain', domain).execute()
-        except:
-            pass
-        return None
+    # STEP 2: Try to scrape immediately - no DNS pre-checks!
+    # This is the key change - we go straight to trying URL variations
+    homepage, successful_url = await try_url_variations(domain, session)
     
-    # STEP 2: Quick connectivity check (5 second check)
-    is_responsive, working_url = await quick_connectivity_check(domain, session)
-    if not is_responsive:
-        log(f"  ❌ No response - domain unresponsive")
+    if not homepage:
+        # Only NOW do we mark it as failed - after trying all URL variations
+        log(f"  ❌ All URL variations failed - domain unreachable")
         performance_stats['failures'] += 1
         performance_stats['failure_types']['timeout'] += 1
         
@@ -800,27 +743,12 @@ async def crawl_business(base_url, session):
             pass
         return None
     
-    log(f"  ✅ Domain validated, starting full crawl...")
+    # SUCCESS! We got a response
+    log(f"  ✅ Homepage loaded successfully")
     
-    # STEP 3: Full crawl with circuit breaker
-    homepage, successful_url = await try_url_variations(domain, session)
-    
-    if not homepage:
-        log(f"  ❌ Failed to load content")
-        performance_stats['failures'] += 1
-        performance_stats['failure_types']['blocked'] += 1
-        
-        try:
-            supabase.table('domain_enrich').update({
-                'enrichment_status': 'blocked',
-                'last_scraped_at': datetime.now().isoformat()
-            }).eq('domain', domain).execute()
-        except:
-            pass
-        return None
-    
+    # Extract and crawl internal links
     internal_links = extract_internal_links(homepage['html'], domain)
-    log(f"  📄 Found {len(internal_links)} pages to crawl")
+    log(f"  📄 Found {len(internal_links)} internal pages to crawl")
     
     # Crawl pages with circuit breaker
     all_pages = [homepage]
@@ -829,14 +757,12 @@ async def crawl_business(base_url, session):
         # Check domain-level timeout
         elapsed = (datetime.now() - domain_start_time).total_seconds()
         if elapsed > MAX_DOMAIN_TIME:
-            log(f"  ⏱️  Domain timeout ({MAX_DOMAIN_TIME}s) - moving on with {len(all_pages)} pages")
-            performance_stats['failure_types']['circuit_breaker'] += 1
+            log(f"  ⏱️  Domain timeout ({MAX_DOMAIN_TIME}s) - stopping with {len(all_pages)} pages")
             break
         
         # Check consecutive failures
         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-            log(f"  ❌ Too many failures ({MAX_CONSECUTIVE_FAILURES}) - giving up on domain")
-            performance_stats['failure_types']['circuit_breaker'] += 1
+            log(f"  ⚠️  Too many failures - stopping with {len(all_pages)} pages")
             break
         
         try:
@@ -870,7 +796,7 @@ async def crawl_business(base_url, session):
     
     total_matches = sum([len(agg[k]) for k in ['equipment', 'brands', 'keywords', 'plastics', 'metals']])
     
-    log(f"  ✅ {len(agg['emails'])} emails | {total_matches} matches | {len(all_pages)} pages")
+    log(f"  ✅ {len(agg['emails'])} emails | {total_matches} matches | {len(all_pages)} pages crawled")
     
     result = {
         'domain': domain,
@@ -898,14 +824,15 @@ async def crawl_business(base_url, session):
     return result
 
 async def main():
-    """Main scraper with circuit breaker"""
-    log("🚀 DOMAIN ENRICHMENT SCRAPER v7.6 - IMPROVED DATA QUALITY")
+    """Main scraper - FIXED VERSION"""
+    log("🚀 DOMAIN ENRICHMENT SCRAPER v7.7 - FIXED VERSION")
     log(f"📅 Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    log(f"🔥 CONCURRENCY: 300 (HIGH PERFORMANCE)")
-    log(f"⏱️  TIMEOUT: Aggressive (8s first try, 15s retry)")
-    log(f"🛑 CIRCUIT BREAKER: 60s per domain, 3 consecutive failures")
+    log(f"🔥 CONCURRENCY: 100 (balanced)")
+    log(f"⏱️  TIMEOUT: 10s first try, 20s retry per URL")
+    log(f"🛑 CIRCUIT BREAKER: 60s per domain, 3 consecutive page failures")
     log(f"📄 PAGES: Up to {MAX_PAGES_PER_DOMAIN} per domain")
-    log(f"🧠 FEATURES: Format validation, DNS check, deduplication, smart failures\n")
+    log(f"✨ KEY FIX: NO DNS pre-filtering - tries all URL variations first!")
+    log(f"✨ KEY FIX: Removed aggressive connectivity checks\n")
     
     performance_stats['start_time'] = datetime.now()
     
@@ -919,16 +846,13 @@ async def main():
         log(f"📦 BATCH {batch_num}")
         log(f"{'='*60}\n")
         
-        log_system_stats()
-        log("")
-        
         # Fetch pending domains
         log("📡 Fetching pending domains from Supabase...")
         response = supabase.table('domain_enrich').select('domain').eq('enrichment_status', 'pending').limit(500).execute()
         
         raw_domains = [row['domain'] for row in response.data if row.get('domain')]
         
-        # 🆕 IMPROVED: Better deduplication and cleaning
+        # Clean and deduplicate
         cleaned_domains = []
         seen = set()
         
@@ -940,8 +864,8 @@ async def main():
             clean = d.strip().lower()
             clean = clean.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
             
-            # Skip if already seen or invalid format
-            if clean in seen or not validate_domain_format(clean):
+            # Skip if already seen
+            if clean in seen:
                 continue
             
             seen.add(clean)
@@ -953,11 +877,11 @@ async def main():
             log("\n🎉 ALL DOMAINS PROCESSED!")
             break
         
-        log(f"📊 Found {len(raw_domains)} raw domains → {len(domains)} valid unique domains")
+        log(f"📊 Found {len(raw_domains)} raw domains → {len(domains)} unique domains")
         if len(raw_domains) != len(domains):
-            invalid_count = len(raw_domains) - len(domains)
-            log(f"⚠️  Removed {invalid_count} invalid/duplicate domains from batch\n")
-        log("🏭 Starting crawl...\n")
+            duplicate_count = len(raw_domains) - len(domains)
+            log(f"⚠️  Removed {duplicate_count} duplicate domains from batch")
+        log(f"🏭 Starting crawl...\n")
         
         # Create ONE shared client for the entire batch
         async with httpx.AsyncClient(
@@ -971,11 +895,11 @@ async def main():
                 'Upgrade-Insecure-Requests': '1'
             },
             timeout=httpx.Timeout(30.0, connect=10.0),
-            limits=httpx.Limits(max_connections=350, max_keepalive_connections=75)
+            limits=httpx.Limits(max_connections=150, max_keepalive_connections=50)
         ) as session:
             
-            # Process with HIGH concurrency
-            semaphore = asyncio.Semaphore(300)
+            # Process with balanced concurrency
+            semaphore = asyncio.Semaphore(100)  # Reduced from 300 to 100 for stability
             results = []
             
             async def crawl_with_limit(domain):
@@ -1002,7 +926,13 @@ async def main():
         log(f"{'='*60}")
         log(f"⏱️  Batch time: {batch_time:.1f}s")
         log(f"🚀 Speed: {domains_per_min:.1f} domains/minute")
-        log(f"📊 Success rate: {(performance_stats['successes']/performance_stats['domains_processed']*100):.1f}%")
+        
+        if performance_stats['domains_processed'] > 0:
+            success_rate = (performance_stats['successes']/performance_stats['domains_processed']*100)
+            log(f"📊 Success rate: {success_rate:.1f}%")
+        else:
+            log(f"📊 Success rate: 0.0%")
+            
         log(f"📈 Total processed: {total_processed} domains")
         
         # Calculate overall stats
@@ -1010,15 +940,10 @@ async def main():
         overall_rate = (total_processed / total_time) * 60 if total_time > 0 else 0
         log(f"📊 Overall rate: {overall_rate:.1f} domains/minute")
         
-        # Log circuit breaker stats
-        if performance_stats['failure_types']['circuit_breaker'] > 0:
-            log(f"🛑 Circuit breaker triggered: {performance_stats['failure_types']['circuit_breaker']} times")
-        
         log("")
-        log_system_stats()
         
         if domains:
-            log(f"\n⏸️  Cooldown: 5 seconds before next batch...\n")
+            log(f"⏸️  Cooldown: 5 seconds before next batch...\n")
             await asyncio.sleep(5)
         
         batch_num += 1
@@ -1035,19 +960,18 @@ async def main():
     log(f"")
     log(f"📋 Failure Breakdown:")
     if performance_stats['failures'] > 0:
-        log(f"   🔍 Invalid Format: {performance_stats['failure_types']['invalid_format']} ({performance_stats['failure_types']['invalid_format']/performance_stats['failures']*100:.1f}%)")
         log(f"   🔍 DNS Failed: {performance_stats['failure_types']['dns_failed']} ({performance_stats['failure_types']['dns_failed']/performance_stats['failures']*100:.1f}%)")
         log(f"   ⏱️  Timeout: {performance_stats['failure_types']['timeout']} ({performance_stats['failure_types']['timeout']/performance_stats['failures']*100:.1f}%)")
         log(f"   🚫 Blocked: {performance_stats['failure_types']['blocked']} ({performance_stats['failure_types']['blocked']/performance_stats['failures']*100:.1f}%)")
-        log(f"   🛑 Circuit Breaker: {performance_stats['failure_types']['circuit_breaker']} ({performance_stats['failure_types']['circuit_breaker']/performance_stats['failures']*100:.1f}%)")
+        log(f"   ❌ Error: {performance_stats['failure_types']['error']} ({performance_stats['failure_types']['error']/performance_stats['failures']*100:.1f}%)")
     else:
-        log(f"   🔍 Invalid Format: 0")
         log(f"   🔍 DNS Failed: 0")
         log(f"   ⏱️  Timeout: 0")
         log(f"   🚫 Blocked: 0")
-        log(f"   🛑 Circuit Breaker: 0")
+        log(f"   ❌ Error: 0")
     log(f"")
     log(f"🚀 Average speed: {(total_processed/total_time)*60:.1f} domains/minute")
 
 if __name__ == "__main__":
     asyncio.run(main())
+
