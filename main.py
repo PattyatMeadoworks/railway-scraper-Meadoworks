@@ -6,6 +6,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 import sys
 import os
+import psutil  # For monitoring system resources
 from supabase import create_client, Client
 
 # Supabase credentials
@@ -519,9 +520,47 @@ KEYWORDS = [
 
 EMAIL_REGEX = re.compile(r'\b([a-zA-Z0-9][a-zA-Z0-9._+-]*@[a-zA-Z0-9][a-zA-Z0-9._-]*\.[a-zA-Z]{2,})\b', re.IGNORECASE)
 
+# Performance tracking
+performance_stats = {
+    'start_time': None,
+    'domains_processed': 0,
+    'successes': 0,
+    'failures': 0,
+    'batch_times': []
+}
+
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
     sys.stdout.flush()
+
+def log_system_stats():
+    """Log current system resource usage"""
+    try:
+        process = psutil.Process()
+        
+        # Memory info
+        mem_info = process.memory_info()
+        mem_mb = mem_info.rss / 1024 / 1024
+        
+        # CPU info
+        cpu_percent = process.cpu_percent(interval=0.1)
+        
+        # File descriptors (connections)
+        try:
+            num_fds = process.num_fds()
+        except:
+            num_fds = "N/A (Windows)"
+        
+        # System-wide memory
+        system_mem = psutil.virtual_memory()
+        
+        log(f"📊 SYSTEM STATS:")
+        log(f"   💾 Memory: {mem_mb:.1f}MB / {system_mem.total/1024/1024/1024:.1f}GB total ({system_mem.percent}% used)")
+        log(f"   🔌 File Descriptors: {num_fds}")
+        log(f"   🖥️  CPU: {cpu_percent}%")
+        
+    except Exception as e:
+        log(f"⚠️  Could not get system stats: {e}")
 
 def is_valid_email(email):
     if email.count('@') != 1:
@@ -605,7 +644,6 @@ async def scrape_page(url, session, retry=0):
             follow_redirects=True
         )
         
-        # Check if we got a valid response
         if response.status_code >= 400:
             if retry < 2:
                 await asyncio.sleep(2)
@@ -626,26 +664,22 @@ async def scrape_page(url, session, retry=0):
             'indicators': indicators
         }
     except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError) as e:
-        # Connection/timeout errors - retry
         if retry < 2:
             await asyncio.sleep(2)
             return await scrape_page(url, session, retry + 1)
         return None
     except Exception as e:
-        # Other errors - don't retry, just fail
         return None
 
 async def try_url_variations(domain, session):
     """Try multiple URL variations to find one that works"""
-    # Remove www. and protocol if present
     clean_domain = domain.replace('https://', '').replace('http://', '').replace('www.', '')
     
-    # Try different URL variations in order of likelihood
     url_variations = [
-        f'https://{clean_domain}',           # Try HTTPS without www first
-        f'https://www.{clean_domain}',       # Try HTTPS with www
-        f'http://{clean_domain}',            # Try HTTP without www
-        f'http://www.{clean_domain}',        # Try HTTP with www
+        f'https://{clean_domain}',
+        f'https://www.{clean_domain}',
+        f'http://{clean_domain}',
+        f'http://www.{clean_domain}',
     ]
     
     for url in url_variations:
@@ -659,18 +693,17 @@ async def try_url_variations(domain, session):
     
     return None, None
 
-async def crawl_business(base_url, session):  # NOW TAKES SESSION AS PARAMETER
+async def crawl_business(base_url, session):
     """Crawl entire business website"""
-    # Extract clean domain
     clean_domain = base_url.replace('https://', '').replace('http://', '').replace('www.', '')
     domain = clean_domain
     log(f"🔍 Crawling {domain}")
     
-    # Try multiple URL variations
     homepage, successful_url = await try_url_variations(domain, session)
     
     if not homepage:
         log(f"  ❌ Failed to load {domain} (tried all URL variations)")
+        performance_stats['failures'] += 1
         return None
     
     internal_links = extract_internal_links(homepage['html'], domain)
@@ -721,23 +754,36 @@ async def crawl_business(base_url, session):  # NOW TAKES SESSION AS PARAMETER
     try:
         supabase.table('domain_enrich').update(result).eq('domain', domain).execute()
         log(f"  💾 Saved to Supabase")
+        performance_stats['successes'] += 1
     except Exception as e:
         log(f"  ❌ Failed to save: {str(e)}")
+        performance_stats['failures'] += 1
     
     return result
 
 async def main():
-    """Main scraper with proper connection management"""
-    log("🚀 DOMAIN ENRICHMENT SCRAPER v7.1 - SUPABASE MODE")
+    """Main scraper with aggressive performance testing"""
+    log("🚀 DOMAIN ENRICHMENT SCRAPER v7.2 - PERFORMANCE TEST MODE")
     log(f"📅 Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    log(f"🔥 CONCURRENCY: 200 (AGGRESSIVE TEST)")
+    log(f"⏱️  TIMEOUT: 30s per request")
+    log(f"📄 PAGES: Up to 20 per domain\n")
+    
+    performance_stats['start_time'] = datetime.now()
     
     batch_num = 1
     total_processed = 0
     
     while True:
+        batch_start = datetime.now()
+        
         log(f"\n{'='*60}")
         log(f"📦 BATCH {batch_num}")
         log(f"{'='*60}\n")
+        
+        # Log system stats at start of batch
+        log_system_stats()
+        log("")
         
         # Fetch pending domains
         log("📡 Fetching pending domains from Supabase...")
@@ -764,11 +810,11 @@ async def main():
                 'Upgrade-Insecure-Requests': '1'
             },
             timeout=httpx.Timeout(30.0, connect=10.0),
-            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
+            limits=httpx.Limits(max_connections=250, max_keepalive_connections=50)  # INCREASED LIMITS
         ) as session:
             
-            # Process with semaphore
-            semaphore = asyncio.Semaphore(30)
+            # Process with HIGH concurrency
+            semaphore = asyncio.Semaphore(200)  # 🔥 200 CONCURRENT!
             results = []
             
             async def crawl_with_limit(domain):
@@ -776,24 +822,54 @@ async def main():
                     result = await crawl_business(f'https://{domain}', session)
                     if result:
                         results.append(result)
+                    performance_stats['domains_processed'] += 1
                     return result
             
             tasks = [crawl_with_limit(domain) for domain in domains]
             await asyncio.gather(*tasks)
         
-        # Session automatically closes here - proper cleanup!
+        # Batch complete - calculate stats
+        batch_time = (datetime.now() - batch_start).total_seconds()
+        performance_stats['batch_times'].append(batch_time)
         
         total_processed += len(domains)
+        domains_per_min = (len(domains) / batch_time) * 60 if batch_time > 0 else 0
         
-        log(f"\n✅ Batch {batch_num} complete!")
-        log(f"📊 Batch: {len(domains)} domains | Total so far: {total_processed} domains")
+        # Log batch completion with performance metrics
+        log(f"\n{'='*60}")
+        log(f"✅ BATCH {batch_num} COMPLETE!")
+        log(f"{'='*60}")
+        log(f"⏱️  Batch time: {batch_time:.1f}s")
+        log(f"🚀 Speed: {domains_per_min:.1f} domains/minute")
+        log(f"📊 Success rate: {(performance_stats['successes']/performance_stats['domains_processed']*100):.1f}%")
+        log(f"📈 Total processed: {total_processed} domains")
         
-        # Cooldown between batches to allow connection cleanup
-        if domains:  # If there were domains in this batch
-            log(f"⏸️  Cooldown: 5 seconds before next batch...\n")
+        # Calculate overall stats
+        total_time = (datetime.now() - performance_stats['start_time']).total_seconds()
+        overall_rate = (total_processed / total_time) * 60 if total_time > 0 else 0
+        log(f"📊 Overall rate: {overall_rate:.1f} domains/minute")
+        
+        # Log system stats at end of batch
+        log("")
+        log_system_stats()
+        
+        # Cooldown between batches
+        if domains:
+            log(f"\n⏸️  Cooldown: 5 seconds before next batch...\n")
             await asyncio.sleep(5)
         
         batch_num += 1
+    
+    # Final summary
+    total_time = (datetime.now() - performance_stats['start_time']).total_seconds()
+    log(f"\n{'='*60}")
+    log(f"🎉 ALL DOMAINS PROCESSED!")
+    log(f"{'='*60}")
+    log(f"⏱️  Total time: {total_time/60:.1f} minutes")
+    log(f"📊 Total domains: {total_processed}")
+    log(f"✅ Successes: {performance_stats['successes']}")
+    log(f"❌ Failures: {performance_stats['failures']}")
+    log(f"🚀 Average speed: {(total_processed/total_time)*60:.1f} domains/minute")
 
 if __name__ == "__main__":
     asyncio.run(main())
