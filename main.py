@@ -711,29 +711,30 @@ def detect_manufacturing(html, url):
     combined = text + ' ' + url.lower()
     
     found = {
-        'manufacturing_terms': set(),  # Consolidated equipment + keywords
+        'manufacturing_terms': set(),
         'brands': set(),
         'plastics': set(),
         'metals': set()
     }
     
-    # Search consolidated manufacturing terms (English + Spanish)
+    # Search manufacturing terms (simple string search)
     for term in MANUFACTURING_TERMS:
         if term in combined:
             found['manufacturing_terms'].add(term)
     
-    # Search brands (with word boundaries)
+    # Search brands (with word boundaries) - FIXED!
     for brand in BRANDS:
-        if re.search(r'' + re.escape(brand) + r'', combined, re.IGNORECASE):
+        if re.search(r'\b' + re.escape(brand) + r'\b', combined, re.IGNORECASE):
             found['brands'].add(brand)
     
-    # Search materials (with word boundaries)
+    # Search plastics (with word boundaries) - FIXED!
     for p in PLASTICS:
-        if re.search(r'' + re.escape(p) + r'', combined, re.IGNORECASE):
+        if re.search(r'\b' + re.escape(p) + r'\b', combined, re.IGNORECASE):
             found['plastics'].add(p)
     
+    # Search metals (with word boundaries) - FIXED!
     for m in METALS:
-        if re.search(r'' + re.escape(m) + r'', combined, re.IGNORECASE):
+        if re.search(r'\b' + re.escape(m) + r'\b', combined, re.IGNORECASE):
             found['metals'].add(m)
     
     return found
