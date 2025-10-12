@@ -6,7 +6,12 @@ from datetime import datetime
 from urllib.parse import urlparse
 import sys
 import os
+import random
 from supabase import create_client, Client
+from dotenv import load_dotenv
+
+# Load environment variables from local.env file
+load_dotenv('local.env')
 
 # Supabase credentials
 SUPABASE_URL = os.getenv("SUPABASE_URL", "YOUR_SUPABASE_URL_HERE")
@@ -15,126 +20,242 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY", "YOUR_SUPABASE_KEY_HERE")
 # Initialize Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Complete equipment types (200+) - Matching N8N v7.0
+# 🆕 TABLE NAME - Now using duplicate table
+TABLE_NAME = "domain_enrich_duplicate"
+
+# 🆕 ROTATING USER AGENTS - Strategy #2
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0',
+]
+
+# Complete equipment types (500+) - ALL TENSES & VARIATIONS
 EQUIPMENT_TYPES = [
-    # CNC Machining - General & Service terms
-    '5-axis machining', '4-axis machining', '3-axis machining', 'multi-axis machining',
-    'cnc machining services', 'cnc machining capabilities', 'precision machining', 'precision machining services',
-    'cnc turning', 'cnc turning services', 'cnc turning capabilities',
-    'cnc milling', 'cnc milling services', 'cnc milling capabilities',
-    'swiss machining', 'swiss-type machining', 'swiss machining services', 'swiss screw machining',
-    'vertical machining center', 'horizontal machining center',
-    'turning services', 'milling services', 'machining services', 'precision turning',
-    'live tooling', 'live tooling capabilities',
+    # CNC Machining - All variations
+    '5-axis machining', '5-axis machine', '5-axis machined', '5 axis machining', '5 axis machine',
+    '4-axis machining', '4-axis machine', '4-axis machined', '4 axis machining', '4 axis machine',
+    '3-axis machining', '3-axis machine', '3-axis machined', '3 axis machining', '3 axis machine',
+    'multi-axis machining', 'multi-axis machine', 'multi axis machining',
+    'cnc machining', 'cnc machined', 'cnc machine', 'cnc machines',
+    'cnc machining services', 'cnc machining capabilities', 
+    'precision machining', 'precision machine', 'precision machined',
+    'precision machining services',
+    'cnc turning', 'cnc turned', 'cnc turn',
+    'cnc turning services', 'cnc turning capabilities',
+    'cnc milling', 'cnc milled', 'cnc mill',
+    'cnc milling services', 'cnc milling capabilities',
+    'swiss machining', 'swiss-type machining', 'swiss machined', 'swiss machine',
+    'swiss machining services', 'swiss screw machining', 'swiss screw machine',
+    'vertical machining center', 'vertical machining centres', 'vmc',
+    'horizontal machining center', 'horizontal machining centres', 'hmc',
+    'turning services', 'turning service', 'turned', 'turning',
+    'milling services', 'milling service', 'milled', 'milling',
+    'machining services', 'machining service', 'machined', 'machining',
+    'precision turning', 'precision turned',
+    'live tooling', 'live tooling capabilities', 'live tool',
     
-    # Laser Cutting - General & Service terms
-    'laser cutting', 'laser cutting services', 'laser cutting capabilities',
-    'fiber laser cutting', 'fiber laser cutting services',
-    'co2 laser cutting', 'co2 laser cutting services',
-    'tube laser cutting', 'tube laser cutting services',
-    '3d laser cutting', 'laser cutting and fabrication', 'metal laser cutting',
+    # Laser Cutting - All variations
+    'laser cutting', 'laser cut', 'laser-cut', 'laser cuts',
+    'laser cutting services', 'laser cutting capabilities',
+    'fiber laser cutting', 'fiber laser cut', 'fiber laser',
+    'fiber laser cutting services',
+    'co2 laser cutting', 'co2 laser cut', 'co2 laser',
+    'co2 laser cutting services',
+    'tube laser cutting', 'tube laser cut', 'tube laser',
+    'tube laser cutting services',
+    '3d laser cutting', '3d laser cut',
+    'laser cutting and fabrication', 'metal laser cutting',
+    'laser engraving', 'laser engraved', 'laser engrave',
+    'laser marking', 'laser marked', 'laser mark',
+    'laser welding', 'laser welded', 'laser weld',
     
-    # Waterjet Cutting - General & Service terms
-    'waterjet cutting', 'waterjet cutting services', 'waterjet cutting capabilities',
-    'abrasive waterjet cutting', 'water jet cutting',
+    # Waterjet Cutting - All variations
+    'waterjet cutting', 'waterjet cut', 'water jet cutting', 'water jet cut',
+    'waterjet cutting services', 'waterjet cutting capabilities',
+    'abrasive waterjet cutting', 'abrasive waterjet',
+    'water jet', 'waterjet',
     
-    # Press Brake & Forming - General & Service terms
-    'press brake', 'press brake services', 'press brake capabilities',
-    'metal forming', 'metal forming services', 'metal forming capabilities',
-    'bending services', 'cnc bending', 'precision bending', 'precision bending services',
-    'brake press services',
+    # Press Brake & Forming - All variations
+    'press brake', 'press braking', 'press brakes',
+    'press brake services', 'press brake capabilities',
+    'metal forming', 'metal formed', 'metal form',
+    'metal forming services', 'metal forming capabilities',
+    'bending services', 'bending service', 'bent', 'bending', 'bend',
+    'cnc bending', 'cnc bent', 'cnc bend',
+    'precision bending', 'precision bent', 'precision bend',
+    'precision bending services',
+    'brake press services', 'brake press',
+    'forming', 'formed', 'form', 'forms', 'former',
     
-    # Sheet Metal Fabrication
-    'sheet metal fabrication', 'sheet metal fabrication services',
-    'sheet metal services', 'metal fabrication', 'metal fabrication services',
-    'custom metal fabrication',
-    'cnc punching', 'cnc punching services', 'turret punching', 'turret punching services',
-    'punching capabilities',
+    # Sheet Metal Fabrication - All variations
+    'sheet metal fabrication', 'sheet metal fabricated', 'sheet metal fabricate',
+    'sheet metal fabrication services',
+    'sheet metal services', 'sheet metal', 'sheetmetal',
+    'metal fabrication', 'metal fabricated', 'metal fabricate',
+    'metal fabrication services',
+    'custom metal fabrication', 'custom fabrication',
+    'cnc punching', 'cnc punched', 'cnc punch',
+    'cnc punching services',
+    'turret punching', 'turret punched', 'turret punch',
+    'turret punching services',
+    'punching capabilities', 'punching', 'punched', 'punch',
     
-    # Welding - General & Service terms
-    'welding', 'welding services', 'welding capabilities',
-    'mig welding', 'mig welding services',
-    'tig welding', 'tig welding services',
-    'robotic welding', 'robotic welding services', 'robotic welding capabilities',
-    'laser welding', 'laser welding services',
-    'spot welding', 'arc welding', 'arc welding services',
+    # Welding - All variations
+    'welding', 'welded', 'weld', 'welds', 'welder', 'welders',
+    'welding services', 'welding capabilities',
+    'mig welding', 'mig welded', 'mig weld', 'mig',
+    'mig welding services',
+    'tig welding', 'tig welded', 'tig weld', 'tig',
+    'tig welding services',
+    'robotic welding', 'robotic welded', 'robotic weld',
+    'robotic welding services', 'robotic welding capabilities',
+    'laser welding', 'laser welded', 'laser weld',
+    'laser welding services',
+    'spot welding', 'spot welded', 'spot weld',
+    'arc welding', 'arc welded', 'arc weld',
+    'arc welding services',
+    'ultrasonic welding', 'ultrasonic welded', 'ultrasonic weld',
     
-    # EDM - General & Service terms
+    # EDM - All variations
     'wire edm', 'wire edm services', 'wire edm capabilities',
-    'sinker edm', 'sinker edm services',
-    'ram edm', 'ram edm services',
-    'edm services', 'edm capabilities',
-    'electrical discharge machining',
+    'sinker edm', 'sinker edm services', 'ram edm', 'ram edm services',
+    'edm services', 'edm capabilities', 'edm',
+    'electrical discharge machining', 'electrical discharge machine',
     
-    # Grinding - General & Service terms
-    'grinding', 'grinding services', 'grinding capabilities',
-    'precision grinding', 'precision grinding services',
-    'surface grinding', 'surface grinding services',
-    'cylindrical grinding', 'cylindrical grinding services',
-    'centerless grinding', 'centerless grinding services',
+    # Grinding - All variations
+    'grinding', 'grind', 'ground', 'grinder', 'grinders',
+    'grinding services', 'grinding capabilities',
+    'precision grinding', 'precision ground', 'precision grind',
+    'precision grinding services',
+    'surface grinding', 'surface ground', 'surface grind',
+    'surface grinding services',
+    'cylindrical grinding', 'cylindrical ground', 'cylindrical grind',
+    'cylindrical grinding services',
+    'centerless grinding', 'centerless ground', 'centerless grind',
+    'centerless grinding services',
+    'od grinding', 'id grinding',
     
-    # Stamping & Die - General & Service terms
-    'metal stamping', 'metal stamping services', 'metal stamping capabilities',
-    'progressive die stamping', 'stamping', 'stamping services', 'stamping capabilities',
-    'tool and die', 'tool and die services', 'tool and die capabilities',
-    'mold making', 'mold making services', 'tooling', 'tooling services',
-    'die making', 'die making services',
+    # Stamping & Die - All variations
+    'metal stamping', 'metal stamped', 'metal stamp',
+    'metal stamping services', 'metal stamping capabilities',
+    'progressive die stamping', 'progressive die stamped',
+    'stamping', 'stamped', 'stamp', 'stamps',
+    'stamping services', 'stamping capabilities',
+    'tool and die', 'tool & die', 'tooling and die',
+    'tool and die services', 'tool and die capabilities',
+    'mold making', 'mold made', 'mold maker', 'moldmaking',
+    'mold making services',
+    'tooling', 'tooled', 'tool', 'tools',
+    'tooling services',
+    'die making', 'die made', 'die maker',
+    'die making services',
     
-    # Casting - General & Service terms
-    'die casting', 'die casting services', 'die casting capabilities',
-    'investment casting', 'investment casting services',
-    'sand casting', 'sand casting services',
-    'aluminum die casting', 'aluminum die casting services',
-    'casting', 'casting services', 'casting capabilities',
+    # Casting - All variations
+    'die casting', 'die cast', 'diecast', 'die-cast',
+    'die casting services', 'die casting capabilities',
+    'investment casting', 'investment cast',
+    'investment casting services',
+    'sand casting', 'sand cast',
+    'sand casting services',
+    'aluminum die casting', 'aluminum die cast',
+    'aluminum die casting services',
+    'casting', 'cast', 'casted', 'casts',
+    'casting services', 'casting capabilities',
     
-    # Injection Molding - General & Service terms
-    'injection molding', 'injection molding services', 'injection molding capabilities',
-    'custom injection molding', 'contract molding', 'contract molding services',
-    'plastic injection molding', 'plastic injection',
-    'insert molding', 'insert molding services', 'insert molding capabilities',
-    'overmolding', 'overmolding services', 'overmolding capabilities',
-    'two-shot molding', 'two-shot molding services', 'two-shot injection molding',
-    '2k molding', '2-shot molding',
-    'multi-component molding', 'multi-shot molding',
-    'lsr molding', 'lsr molding services', 'liquid silicone rubber molding',
-    'micro molding', 'micro molding services',
+    # Injection Molding - All variations
+    'injection molding', 'injection molded', 'injection mold', 'injection moulding', 'injection moulded',
+    'injection molding services', 'injection molding capabilities',
+    'custom injection molding', 'custom injection molded',
+    'contract molding', 'contract molded',
+    'contract molding services',
+    'plastic injection molding', 'plastic injection molded',
+    'plastic injection', 'plastic molding', 'plastic molded', 'plastic mold',
+    'insert molding', 'insert molded', 'insert mold',
+    'insert molding services', 'insert molding capabilities',
+    'overmolding', 'overmolded', 'overmold', 'over-molding', 'over-molded',
+    'overmolding services', 'overmolding capabilities',
+    'two-shot molding', 'two-shot molded', 'two shot molding', 'two shot molded',
+    'two-shot molding services', 'two-shot injection molding',
+    '2k molding', '2k molded', '2-shot molding', '2-shot molded', '2 shot molding',
+    'multi-component molding', 'multi-component molded',
+    'multi-shot molding', 'multi-shot molded',
+    'lsr molding', 'lsr molded', 'lsr mold',
+    'lsr molding services',
+    'liquid silicone rubber molding', 'liquid silicone rubber molded',
+    'micro molding', 'micro molded', 'micro mold',
+    'micro molding services',
+    'molding', 'molded', 'mold', 'molds', 'moulding', 'moulded',
+    'imm', 'injection molding machine', 'injection molding machines',
     
-    # Extrusion - General & Service terms
-    'extrusion', 'extrusion services', 'extrusion capabilities',
-    'profile extrusion', 'profile extrusion services',
-    'pipe extrusion', 'pipe extrusion services',
-    'sheet extrusion', 'sheet extrusion services',
-    'plastic extrusion', 'plastic extrusion services',
-    'blown film', 'blown film extrusion',
-    'co-extrusion', 'co-extrusion services',
+    # Extrusion - All variations
+    'extrusion', 'extruded', 'extrude', 'extrudes', 'extruder', 'extruders',
+    'extrusion services', 'extrusion capabilities',
+    'profile extrusion', 'profile extruded', 'profile extrude',
+    'profile extrusion services',
+    'pipe extrusion', 'pipe extruded', 'pipe extrude',
+    'pipe extrusion services',
+    'sheet extrusion', 'sheet extruded', 'sheet extrude',
+    'sheet extrusion services',
+    'plastic extrusion', 'plastic extruded', 'plastic extrude',
+    'plastic extrusion services',
+    'blown film', 'blown film extrusion', 'blown film extruded',
+    'co-extrusion', 'coextrusion', 'co-extruded', 'coextruded',
+    'co-extrusion services',
     
-    # Blow Molding - General & Service terms
-    'blow molding', 'blow molding services', 'blow molding capabilities',
-    'extrusion blow molding', 'extrusion blow molding services',
-    'injection blow molding', 'injection blow molding services',
-    'stretch blow molding', 'stretch blow molding services',
-    'pet blow molding', 'bottle manufacturing',
+    # Blow Molding - All variations
+    'blow molding', 'blow molded', 'blow mold', 'blow moulding', 'blow moulded',
+    'blow molding services', 'blow molding capabilities',
+    'extrusion blow molding', 'extrusion blow molded',
+    'extrusion blow molding services',
+    'injection blow molding', 'injection blow molded',
+    'injection blow molding services',
+    'stretch blow molding', 'stretch blow molded',
+    'stretch blow molding services',
+    'pet blow molding', 'pet blow molded',
+    'bottle manufacturing', 'bottle manufactured', 'bottle maker',
     
-    # Thermoforming - General & Service terms
-    'thermoforming', 'thermoforming services', 'thermoforming capabilities',
-    'vacuum forming', 'vacuum forming services',
-    'pressure forming', 'pressure forming services',
-    'heavy gauge thermoforming', 'thin gauge thermoforming',
+    # Thermoforming - All variations (FIXED - includes "thermoformed"!)
+    'thermoforming', 'thermoformed', 'thermoform', 'thermoforms',
+    'thermo-forming', 'thermo-formed', 'thermo forming', 'thermo formed',
+    'thermoforming services', 'thermoforming capabilities',
+    'vacuum forming', 'vacuum formed', 'vacuum form',
+    'vacuum forming services',
+    'pressure forming', 'pressure formed', 'pressure form',
+    'pressure forming services',
+    'heavy gauge thermoforming', 'heavy gauge thermoformed',
+    'thin gauge thermoforming', 'thin gauge thermoformed',
     
-    # Rotomolding - General & Service terms
-    'rotomolding', 'rotomolding services', 'rotomolding capabilities',
-    'rotational molding', 'rotational molding services',
-    'roto molding',
+    # Rotomolding - All variations
+    'rotomolding', 'rotomolded', 'rotomold', 'roto-molding', 'roto-molded',
+    'rotomolding services', 'rotomolding capabilities',
+    'rotational molding', 'rotational molded', 'rotationally molded',
+    'rotational molding services',
+    'roto molding', 'roto molded',
     
-    # Compression Molding - General & Service terms
-    'compression molding', 'compression molding services', 'compression molding capabilities',
-    'smc molding', 'bmc molding', 'composite molding',
+    # Compression Molding - All variations
+    'compression molding', 'compression molded', 'compression mold',
+    'compression molding services', 'compression molding capabilities',
+    'smc molding', 'smc molded',
+    'bmc molding', 'bmc molded',
+    'composite molding', 'composite molded', 'composite mold',
     
-    # Additive Manufacturing - General & Service terms
-    '3d printing', '3d printing services', '3d printing capabilities',
-    'additive manufacturing', 'additive manufacturing services', 'additive manufacturing capabilities',
-    'metal 3d printing', 'metal 3d printing services',
-    'rapid prototyping', 'rapid prototyping services', 'prototype development'
+    # Additive Manufacturing - All variations
+    '3d printing', '3d printed', '3d print', '3d prints', '3-d printing', '3-d printed',
+    '3d printing services', '3d printing capabilities',
+    'additive manufacturing', 'additive manufactured', 'additively manufactured',
+    'additive manufacturing services', 'additive manufacturing capabilities',
+    'metal 3d printing', 'metal 3d printed',
+    'metal 3d printing services',
+    'rapid prototyping', 'rapid prototype', 'rapid prototyped',
+    'rapid prototyping services',
+    'prototype development', 'prototype', 'prototyped', 'prototyping',
+    'fdm', 'sla', 'sls', 'dmls', 'slm',
+    'fused deposition modeling', 'fused deposition',
+    'stereolithography',
+    'selective laser sintering',
 ]
 
 # Equipment brands (300+) - Matching N8N v7.0
@@ -432,89 +553,188 @@ METALS = [
     'tube', 'pipe', 'mechanical tubing'
 ]
 
-# Keywords - Matching N8N v7.0
+# Keywords - Expanded with ALL variations (500+)
 KEYWORDS = [
-    # CNC & Machining
-    'cnc', 'machining', 'machine shop', 'machinist', 'mill', 'lathe', 'turning', 'milling',
-    'vmc', 'hmc', '3-axis', '4-axis', '5-axis', 'multi-axis', 'swiss-type',
-    'live tooling', 'cnc lathe', 'cnc mill', 'precision machining',
+    # CNC & Machining - All variations
+    'cnc', 'cnc machining', 'cnc machined', 'cnc machine', 'cnc machines',
+    'machining', 'machined', 'machine', 'machines', 'machinist', 'machinists',
+    'machine shop', 'machine shops', 'machining shop',
+    'mill', 'milled', 'milling', 'mills', 'miller',
+    'lathe', 'lathes', 'lathing',
+    'turning', 'turned', 'turn', 'turns', 'turner',
+    'vmc', 'hmc', 
+    '3-axis', '4-axis', '5-axis', '3 axis', '4 axis', '5 axis',
+    'multi-axis', 'multi axis', 'multiaxis',
+    'swiss-type', 'swiss type', 'swiss',
+    'live tooling', 'live tool',
+    'cnc lathe', 'cnc lathes',
+    'cnc mill', 'cnc mills',
+    'precision machining', 'precision machined',
     
-    # Laser & Cutting
-    'laser', 'laser cutting', 'fiber laser', 'co2 laser', 'tube laser',
-    'laser engraving', 'laser marking', 'laser welding',
+    # Laser & Cutting - All variations
+    'laser', 'lasers', 'laser cut', 'laser cutting', 'laser-cut',
+    'fiber laser', 'fiber lasers', 'fiber laser cut', 'fiber laser cutting',
+    'co2 laser', 'co2 lasers', 'co2 laser cut', 'co2 laser cutting',
+    'tube laser', 'tube lasers', 'tube laser cut', 'tube laser cutting',
+    'laser engraving', 'laser engraved', 'laser engrave',
+    'laser marking', 'laser marked', 'laser mark',
+    'laser welding', 'laser welded', 'laser weld',
     
-    # Waterjet
-    'waterjet', 'water jet', 'abrasive jet', 'waterjet cutting',
+    # Waterjet - All variations
+    'waterjet', 'water jet', 'water-jet',
+    'waterjet cutting', 'waterjet cut', 'water jet cutting', 'water jet cut',
+    'abrasive jet', 'abrasive waterjet',
     
-    # Press & Forming
-    'press brake', 'bending', 'metal forming', 'forming', 'brake press',
-    'shearing', 'guillotine', 'power shear', 'hydraulic press',
+    # Press & Forming - All variations
+    'press brake', 'press brakes', 'pressbrake',
+    'bending', 'bent', 'bend', 'bends', 'bender',
+    'metal forming', 'metal formed', 'metal form',
+    'forming', 'formed', 'form', 'forms', 'former',
+    'brake press', 'brake presses',
+    'shearing', 'sheared', 'shear', 'shears',
+    'guillotine', 'guillotines',
+    'power shear', 'power shears',
+    'hydraulic press', 'hydraulic presses',
     
-    # Welding
-    'welding', 'welder', 'weld', 'mig', 'tig', 'arc welding',
-    'spot welding', 'robotic welding', 'weld automation',
+    # Welding - All variations
+    'welding', 'welded', 'weld', 'welds', 'welder', 'welders',
+    'mig', 'mig welding', 'mig welded', 'mig weld',
+    'tig', 'tig welding', 'tig welded', 'tig weld',
+    'arc welding', 'arc welded', 'arc weld',
+    'spot welding', 'spot welded', 'spot weld',
+    'robotic welding', 'robotic welded', 'robotic weld',
+    'weld automation', 'automated welding',
     
-    # EDM
-    'edm', 'electrical discharge', 'wire edm', 'sinker edm', 'ram edm',
+    # EDM - All variations
+    'edm', 'electrical discharge', 'electrical discharge machining',
+    'wire edm', 'sinker edm', 'ram edm',
     
-    # Grinding
-    'grinding', 'grinder', 'surface grinder', 'cylindrical grinder',
-    'od grinding', 'id grinding', 'centerless grinding',
+    # Grinding - All variations
+    'grinding', 'ground', 'grind', 'grinds', 'grinder', 'grinders',
+    'surface grinder', 'surface grinding', 'surface ground',
+    'cylindrical grinder', 'cylindrical grinding', 'cylindrical ground',
+    'od grinding', 'id grinding',
+    'centerless grinding', 'centerless ground',
     
-    # Sheet Metal & Fabrication
-    'sheet metal', 'metal fabrication', 'fabrication', 'turret punch', 'punching',
-    'laser cutting', 'metal stamping', 'fab shop',
+    # Sheet Metal & Fabrication - All variations
+    'sheet metal', 'sheetmetal',
+    'metal fabrication', 'metal fabricated', 'metal fabricate',
+    'fabrication', 'fabricated', 'fabricate', 'fabricates', 'fabricator',
+    'turret punch', 'turret punching', 'turret punched',
+    'punching', 'punched', 'punch',
+    'metal stamping', 'metal stamped', 'metal stamp',
+    'fab shop', 'fabrication shop',
     
-    # Stamping & Die
-    'stamping', 'metal stamping', 'progressive die', 'die stamping',
+    # Stamping & Die - All variations
+    'stamping', 'stamped', 'stamp', 'stamps',
+    'progressive die', 'progressive die stamping', 'progressive die stamped',
+    'die stamping', 'die stamped',
     'transfer die', 'compound die',
     
-    # Casting & Foundry
-    'casting', 'foundry', 'die casting', 'sand casting', 'investment casting',
-    'lost wax', 'permanent mold',
+    # Casting & Foundry - All variations
+    'casting', 'cast', 'casted', 'casts',
+    'foundry', 'foundries',
+    'die casting', 'die cast', 'diecast', 'die-cast',
+    'sand casting', 'sand cast',
+    'investment casting', 'investment cast',
+    'lost wax', 'lost wax casting',
+    'permanent mold', 'permanent mold casting',
     
-    # Tooling
-    'tooling', 'tool and die', 'mold making', 'die making', 'tool design',
-    'jigs and fixtures',
+    # Tooling - All variations
+    'tooling', 'tooled', 'tool', 'tools',
+    'tool and die', 'tool & die',
+    'mold making', 'mold maker', 'moldmaking', 'mould making',
+    'die making', 'die maker', 'diemaking',
+    'tool design', 'tool designer',
+    'jigs and fixtures', 'jigs & fixtures', 'fixtures',
     
-    # Plastic Processing - Injection Molding
-    'injection molding', 'plastic injection', 'molding', 'imm',
-    'insert molding', 'overmolding', 'two-shot', '2k molding', '2-shot',
-    'multi-shot', 'micro molding', 'thin wall molding',
+    # Plastic Processing - Injection Molding - All variations
+    'injection molding', 'injection molded', 'injection mold', 'injection moulding', 'injection moulded',
+    'plastic injection', 'plastic molding', 'plastic molded', 'plastic mold',
+    'molding', 'molded', 'mold', 'molds', 'moulding', 'moulded', 'moulds',
+    'imm', 'injection molding machine',
+    'insert molding', 'insert molded', 'insert mold',
+    'overmolding', 'overmolded', 'overmold', 'over-molding', 'over-molded',
+    'two-shot', 'two shot', '2-shot', '2 shot', '2k',
+    'multi-shot', 'multi shot', 'multishot',
+    'micro molding', 'micro molded', 'micro mold',
+    'thin wall molding', 'thin wall molded',
     
-    # Plastic Processing - Extrusion
-    'extrusion', 'extruder', 'plastic extrusion', 'blown film', 'profile extrusion',
-    'pipe extrusion', 'sheet extrusion', 'co-extrusion',
+    # Plastic Processing - Extrusion - All variations
+    'extrusion', 'extruded', 'extrude', 'extrudes', 'extruder', 'extruders',
+    'plastic extrusion', 'plastic extruded',
+    'blown film', 'blown film extrusion',
+    'profile extrusion', 'profile extruded',
+    'pipe extrusion', 'pipe extruded',
+    'sheet extrusion', 'sheet extruded',
+    'co-extrusion', 'coextrusion', 'co-extruded', 'coextruded',
     
-    # Plastic Processing - Blow Molding
-    'blow molding', 'blow moulding', 'bottle', 'container', 'pet blow',
-    'extrusion blow molding', 'injection blow molding', 'stretch blow molding',
+    # Plastic Processing - Blow Molding - All variations
+    'blow molding', 'blow molded', 'blow mold', 'blow moulding', 'blow moulded',
+    'blow moulding', 'blow-molded', 'blow-molding',
+    'bottle', 'bottles', 'container', 'containers',
+    'pet blow', 'pet bottles',
+    'extrusion blow molding', 'extrusion blow molded',
+    'injection blow molding', 'injection blow molded',
+    'stretch blow molding', 'stretch blow molded',
     
-    # Plastic Processing - Thermoforming
-    'thermoforming', 'vacuum forming', 'pressure forming',
-    'heavy gauge thermoforming', 'thin gauge thermoforming',
+    # Plastic Processing - Thermoforming - All variations (FIXED!)
+    'thermoforming', 'thermoformed', 'thermoform', 'thermoforms',
+    'thermo-forming', 'thermo-formed', 'thermo forming', 'thermo formed',
+    'vacuum forming', 'vacuum formed', 'vacuum form',
+    'vacuum-forming', 'vacuum-formed',
+    'pressure forming', 'pressure formed', 'pressure form',
+    'pressure-forming', 'pressure-formed',
+    'heavy gauge thermoforming', 'heavy gauge thermoformed',
+    'thin gauge thermoforming', 'thin gauge thermoformed',
     
-    # Plastic Processing - Rotomolding
-    'rotomolding', 'rotational molding', 'roto molding',
+    # Plastic Processing - Rotomolding - All variations
+    'rotomolding', 'rotomolded', 'rotomold',
+    'roto-molding', 'roto-molded', 'roto molding', 'roto molded',
+    'rotational molding', 'rotational molded', 'rotationally molded',
+    'rotomoulding', 'rotomoulded',
     
-    # Plastic Processing - Compression Molding
-    'compression molding', 'smc', 'bmc', 'composite molding',
+    # Plastic Processing - Compression Molding - All variations
+    'compression molding', 'compression molded', 'compression mold',
+    'compression moulding', 'compression moulded',
+    'smc', 'smc molding', 'smc molded', 'sheet molding compound',
+    'bmc', 'bmc molding', 'bmc molded', 'bulk molding compound',
+    'composite molding', 'composite molded',
     
-    # Additive Manufacturing
-    '3d printing', 'additive manufacturing', 'fdm', 'sla', 'sls', 
-    'rapid prototyping', 'metal 3d printing', 'dmls', 'slm',
+    # Additive Manufacturing - All variations
+    '3d printing', '3d printed', '3d print', '3-d printing', '3-d printed',
+    'additive manufacturing', 'additive manufactured', 'additively manufactured',
+    'metal 3d printing', 'metal 3d printed',
+    'rapid prototyping', 'rapid prototype', 'rapid prototyped',
+    'fdm', 'sla', 'sls', 'dmls', 'slm',
+    'fused deposition', 'fused deposition modeling',
+    'stereolithography',
     
-    # Quality & Metrology
-    'cmm', 'coordinate measuring', 'inspection', 'quality control',
-    'optical inspection', 'vision system', 'metrology',
+    # Quality & Metrology - All variations
+    'cmm', 'coordinate measuring', 'coordinate measurement',
+    'inspection', 'inspected', 'inspect', 'inspector',
+    'quality control', 'quality assurance', 'qc', 'qa',
+    'optical inspection', 'optical inspected',
+    'vision system', 'vision inspection',
+    'metrology', 'metrological',
     
-    # Surface Treatment
-    'anodizing', 'plating', 'powder coating', 'painting',
-    'heat treating', 'passivation', 'electropolishing',
+    # Surface Treatment - All variations
+    'anodizing', 'anodized', 'anodize', 'anodization',
+    'plating', 'plated', 'plate',
+    'powder coating', 'powder coated', 'powder coat',
+    'painting', 'painted', 'paint',
+    'heat treating', 'heat treated', 'heat treat', 'heat treatment',
+    'passivation', 'passivated', 'passivate',
+    'electropolishing', 'electropolished', 'electropolish',
     
-    # Assembly & Secondary
-    'assembly', 'kitting', 'packaging', 'sub-assembly',
-    'ultrasonic welding', 'heat staking', 'press fit'
+    # Assembly & Secondary - All variations
+    'assembly', 'assembled', 'assemble', 'assembler',
+    'kitting', 'kitted', 'kit',
+    'packaging', 'packaged', 'package', 'packager',
+    'sub-assembly', 'subassembly', 'sub assembly',
+    'ultrasonic welding', 'ultrasonic welded',
+    'heat staking', 'heat staked',
+    'press fit', 'press fitted', 'press-fit',
 ]
 
 EMAIL_REGEX = re.compile(r'\b([a-zA-Z0-9][a-zA-Z0-9._+-]*@[a-zA-Z0-9][a-zA-Z0-9._-]*\.[a-zA-Z]{2,})\b', re.IGNORECASE)
@@ -638,9 +858,10 @@ def detect_manufacturing(html, url):
     return found
 
 async def scrape_page(url, session, retry=0):
-    """Scrape single page with faster timeouts"""
+    """🆕 Strategy #1: Increased timeouts, Strategy #3: Better error handling"""
     try:
-        timeout = 10.0 if retry == 0 else 20.0
+        # Strategy #1: Longer timeouts - 15s/30s instead of 10s/20s
+        timeout = 15.0 if retry == 0 else 30.0
         
         response = await session.get(
             url, 
@@ -648,7 +869,20 @@ async def scrape_page(url, session, retry=0):
             follow_redirects=True
         )
         
-        if response.status_code >= 400:
+        # Strategy #3: Handle specific HTTP status codes
+        if response.status_code == 429:  # Rate limited
+            log(f"    ⏳ Rate limited, waiting 5s...")
+            await asyncio.sleep(5)
+            if retry < 2:  # Try up to 3 times for rate limits
+                return await scrape_page(url, session, retry + 1)
+            return None
+        elif response.status_code in [502, 503, 504]:  # Server temporarily unavailable
+            log(f"    🔄 Server error {response.status_code}, retrying...")
+            await asyncio.sleep(3)
+            if retry < 1:
+                return await scrape_page(url, session, retry + 1)
+            return None
+        elif response.status_code >= 400:
             if retry < 1:
                 await asyncio.sleep(1)
                 return await scrape_page(url, session, retry + 1)
@@ -674,11 +908,9 @@ async def scrape_page(url, session, retry=0):
         return None
 
 async def try_url_variations(domain, session):
-    """Try multiple URL variations to find one that works - THIS IS THE KEY FUNCTION!"""
+    """🆕 Strategy #1: Retry logic with delays - Try each variation twice!"""
     clean_domain = domain.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
     
-    # Try ALL variations: HTTPS first (more common), then HTTP
-    # Try without www first, then with www
     url_variations = [
         f'https://{clean_domain}',
         f'https://www.{clean_domain}',
@@ -686,20 +918,26 @@ async def try_url_variations(domain, session):
         f'http://www.{clean_domain}',
     ]
     
-    for url in url_variations:
-        try:
-            result = await scrape_page(url, session)
-            if result:
-                log(f"  ✅ Connected via: {url}")
-                return result, url
-        except:
-            continue
+    # Try all variations TWICE with a delay between attempts
+    for attempt in range(2):
+        for url in url_variations:
+            try:
+                result = await scrape_page(url, session)
+                if result:
+                    log(f"  ✅ Connected via: {url} (attempt {attempt + 1})")
+                    return result, url
+            except:
+                continue
+        
+        # Between attempts, wait a bit for slow servers
+        if attempt == 0:
+            await asyncio.sleep(2)
     
-    # All variations failed
+    # All variations failed even after retries
     return None, None
 
 async def crawl_business(base_url, session):
-    """Crawl business with LESS aggressive filtering - try scraping first!"""
+    """Crawl business with BETTER failure tracking"""
     clean_domain = base_url.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
     domain = clean_domain
     
@@ -709,6 +947,9 @@ async def crawl_business(base_url, session):
     
     log(f"🔍 Crawling {domain}")
     
+    # 🆕 Strategy #4: Human-like delay between domains
+    await asyncio.sleep(random.uniform(0.5, 1.5))
+    
     # STEP 1: Quick obvious-garbage check (no network calls!)
     if is_obviously_invalid_domain(domain):
         log(f"  ❌ Obviously invalid domain format - skipping")
@@ -716,31 +957,29 @@ async def crawl_business(base_url, session):
         performance_stats['failure_types']['error'] += 1
         
         try:
-            supabase.table('domain_enrich').update({
+            supabase.table(TABLE_NAME).update({
                 'enrichment_status': 'error',
                 'last_scraped_at': datetime.now().isoformat()
             }).eq('domain', domain).execute()
-        except:
-            pass
+        except Exception as e:
+            log(f"  ⚠️ Failed to save error status: {str(e)}")
         return None
     
-    # STEP 2: Try to scrape immediately - no DNS pre-checks!
-    # This is the key change - we go straight to trying URL variations
+    # STEP 2: Try to scrape immediately with retries
     homepage, successful_url = await try_url_variations(domain, session)
     
     if not homepage:
-        # Only NOW do we mark it as failed - after trying all URL variations
         log(f"  ❌ All URL variations failed - domain unreachable")
         performance_stats['failures'] += 1
         performance_stats['failure_types']['timeout'] += 1
         
         try:
-            supabase.table('domain_enrich').update({
+            supabase.table(TABLE_NAME).update({
                 'enrichment_status': 'timeout',
                 'last_scraped_at': datetime.now().isoformat()
             }).eq('domain', domain).execute()
-        except:
-            pass
+        except Exception as e:
+            log(f"  ⚠️ Failed to save timeout status: {str(e)}")
         return None
     
     # SUCCESS! We got a response
@@ -814,25 +1053,42 @@ async def crawl_business(base_url, session):
     
     # Save to Supabase
     try:
-        supabase.table('domain_enrich').update(result).eq('domain', domain).execute()
+        supabase.table(TABLE_NAME).update(result).eq('domain', domain).execute()
         log(f"  💾 Saved to Supabase")
         performance_stats['successes'] += 1
     except Exception as e:
         log(f"  ❌ Failed to save: {str(e)}")
         performance_stats['failures'] += 1
+        
+        # Try to at least mark as error
+        try:
+            supabase.table(TABLE_NAME).update({
+                'enrichment_status': 'error',
+                'last_scraped_at': datetime.now().isoformat()
+            }).eq('domain', domain).execute()
+        except:
+            pass
     
     return result
 
 async def main():
-    """Main scraper - FIXED VERSION"""
-    log("🚀 DOMAIN ENRICHMENT SCRAPER v7.7 - FIXED VERSION")
+    """Main scraper - OPTIMIZED VERSION with Strategies 1-6 + Expanded Terms"""
+    log("🚀 DOMAIN ENRICHMENT SCRAPER v7.9 - MAXIMUM COVERAGE")
     log(f"📅 Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    log(f"🔥 CONCURRENCY: 100 (balanced)")
-    log(f"⏱️  TIMEOUT: 10s first try, 20s retry per URL")
+    log(f"🆕 TABLE: {TABLE_NAME}")
+    log(f"🔥 CONCURRENCY: 50 (balanced for stability)")
+    log(f"⏱️  TIMEOUT: 15s first try, 30s retry per URL")
     log(f"🛑 CIRCUIT BREAKER: 60s per domain, 3 consecutive page failures")
     log(f"📄 PAGES: Up to {MAX_PAGES_PER_DOMAIN} per domain")
-    log(f"✨ KEY FIX: NO DNS pre-filtering - tries all URL variations first!")
-    log(f"✨ KEY FIX: Removed aggressive connectivity checks\n")
+    log(f"✨ OPTIMIZATIONS:")
+    log(f"   • 2x retry logic with delays")
+    log(f"   • Rotating user agents (5 variations)")
+    log(f"   • Smart HTTP error handling (429, 502, 503, 504)")
+    log(f"   • Human-like delays (0.5-1.5s)")
+    log(f"   • Optimized connection pooling")
+    log(f"   • Better failure tracking")
+    log(f"   • 🆕 EXPANDED TERMS: 484 equipment + 437 keywords (all tenses!)")
+    log(f"   • 🆕 Now catches: thermoformed, machined, molded, welded, etc.\n")
     
     performance_stats['start_time'] = datetime.now()
     
@@ -848,7 +1104,7 @@ async def main():
         
         # Fetch pending domains
         log("📡 Fetching pending domains from Supabase...")
-        response = supabase.table('domain_enrich').select('domain').eq('enrichment_status', 'pending').limit(500).execute()
+        response = supabase.table(TABLE_NAME).select('domain').eq('enrichment_status', 'pending').limit(500).execute()
         
         raw_domains = [row['domain'] for row in response.data if row.get('domain')]
         
@@ -883,23 +1139,28 @@ async def main():
             log(f"⚠️  Removed {duplicate_count} duplicate domains from batch")
         log(f"🏭 Starting crawl...\n")
         
-        # Create ONE shared client for the entire batch
+        # 🆕 Strategy #6: Optimized connection pooling
+        # 🆕 Strategy #2: Rotate user agents per batch
         async with httpx.AsyncClient(
             follow_redirects=True,
             headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': random.choice(USER_AGENTS),  # Rotate!
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.5',
                 'Accept-Encoding': 'gzip, deflate',
                 'Connection': 'keep-alive',
                 'Upgrade-Insecure-Requests': '1'
             },
-            timeout=httpx.Timeout(30.0, connect=10.0),
-            limits=httpx.Limits(max_connections=150, max_keepalive_connections=50)
+            timeout=httpx.Timeout(45.0, connect=15.0),  # Longer overall timeout
+            limits=httpx.Limits(
+                max_connections=100,  # Reduced from 150
+                max_keepalive_connections=20,  # Reduced from 50
+                keepalive_expiry=30.0  # Keep connections alive longer
+            )
         ) as session:
             
-            # Process with balanced concurrency
-            semaphore = asyncio.Semaphore(100)  # Reduced from 300 to 100 for stability
+            # 🆕 Strategy #5: Reduced concurrency (50 instead of 100)
+            semaphore = asyncio.Semaphore(50)
             results = []
             
             async def crawl_with_limit(domain):
@@ -971,6 +1232,7 @@ async def main():
         log(f"   ❌ Error: 0")
     log(f"")
     log(f"🚀 Average speed: {(total_processed/total_time)*60:.1f} domains/minute")
+    log(f"\n💡 TIP: To retry failed domains, change 'pending' to 'timeout' in the query and run again!")
 
 if __name__ == "__main__":
     asyncio.run(main())

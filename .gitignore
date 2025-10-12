@@ -1,6 +1,8 @@
-# Ignore the fixed version file (copy contents to main.py instead)
+# Ignore the fixed/optimized version files (copy contents to main.py instead)
 main_fixed.py
+main_optimized.py
 FIXES_APPLIED.md
+OPTIMIZATION_GUIDE.md
 
 # Python
 __pycache__/
@@ -41,6 +43,8 @@ env/
 # Environment variables
 .env
 .env.local
+local.env
+*.env
 
 # Logs
 *.log
