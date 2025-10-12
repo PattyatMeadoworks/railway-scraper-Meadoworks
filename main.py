@@ -23,6 +23,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # 🆕 TABLE NAME - Now using duplicate table
 TABLE_NAME = "domain_enrich_duplicate"
 
+# 🆕 GROUP PROCESSING - Optional: Set GROUP_NUMBER env var to process specific group (1-10)
+GROUP_NUMBER = os.getenv("GROUP_NUMBER")  # None = process all, or set to 1-10
+
 # 🆕 ROTATING USER AGENTS - Strategy #2
 USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -32,230 +35,291 @@ USER_AGENTS = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0',
 ]
 
-# Complete equipment types (500+) - ALL TENSES & VARIATIONS
-EQUIPMENT_TYPES = [
-    # CNC Machining - All variations
-    '5-axis machining', '5-axis machine', '5-axis machined', '5 axis machining', '5 axis machine',
-    '4-axis machining', '4-axis machine', '4-axis machined', '4 axis machining', '4 axis machine',
-    '3-axis machining', '3-axis machine', '3-axis machined', '3 axis machining', '3 axis machine',
+# Consolidated Manufacturing Terms (650+) - English + Spanish
+MANUFACTURING_TERMS = [  # Replaces old EQUIPMENT_TYPES + KEYWORDS
+    # CNC Machining - English + Spanish
+    'cnc', 'cnc machining', 'cnc machined', 'cnc machine', 'cnc machines',
+    'mecanizado cnc', 'mecanizado', 'mecanizada',  # Spanish
+    '5-axis machining', '5-axis machine', '5-axis machined', '5 axis machining',
+    '4-axis machining', '4-axis machine', '4-axis machined', '4 axis machining',
+    '3-axis machining', '3-axis machine', '3-axis machined', '3 axis machining',
     'multi-axis machining', 'multi-axis machine', 'multi axis machining',
-    'cnc machining', 'cnc machined', 'cnc machine', 'cnc machines',
-    'cnc machining services', 'cnc machining capabilities', 
+    'mecanizado 5 ejes', 'mecanizado 4 ejes', 'mecanizado 3 ejes',  # Spanish
     'precision machining', 'precision machine', 'precision machined',
-    'precision machining services',
-    'cnc turning', 'cnc turned', 'cnc turn',
-    'cnc turning services', 'cnc turning capabilities',
-    'cnc milling', 'cnc milled', 'cnc mill',
-    'cnc milling services', 'cnc milling capabilities',
-    'swiss machining', 'swiss-type machining', 'swiss machined', 'swiss machine',
-    'swiss machining services', 'swiss screw machining', 'swiss screw machine',
-    'vertical machining center', 'vertical machining centres', 'vmc',
-    'horizontal machining center', 'horizontal machining centres', 'hmc',
-    'turning services', 'turning service', 'turned', 'turning',
-    'milling services', 'milling service', 'milled', 'milling',
-    'machining services', 'machining service', 'machined', 'machining',
+    'mecanizado de precisión',  # Spanish
+    
+    # Turning - English + Spanish
+    'cnc turning', 'cnc turned', 'cnc turn', 'turning', 'turned', 'turn', 'turner',
+    'torneado', 'torneado cnc', 'torno',  # Spanish
     'precision turning', 'precision turned',
-    'live tooling', 'live tooling capabilities', 'live tool',
+    'lathe', 'lathes', 'lathing', 'cnc lathe', 'cnc lathes',
     
-    # Laser Cutting - All variations
-    'laser cutting', 'laser cut', 'laser-cut', 'laser cuts',
-    'laser cutting services', 'laser cutting capabilities',
-    'fiber laser cutting', 'fiber laser cut', 'fiber laser',
-    'fiber laser cutting services',
-    'co2 laser cutting', 'co2 laser cut', 'co2 laser',
-    'co2 laser cutting services',
-    'tube laser cutting', 'tube laser cut', 'tube laser',
-    'tube laser cutting services',
-    '3d laser cutting', '3d laser cut',
-    'laser cutting and fabrication', 'metal laser cutting',
-    'laser engraving', 'laser engraved', 'laser engrave',
-    'laser marking', 'laser marked', 'laser mark',
-    'laser welding', 'laser welded', 'laser weld',
+    # Milling - English + Spanish
+    'cnc milling', 'cnc milled', 'cnc mill', 'milling', 'milled', 'mill', 'mills', 'miller',
+    'fresado', 'fresado cnc', 'fresadora',  # Spanish
+    'vertical machining center', 'horizontal machining center', 'vmc', 'hmc',
+    'centro de mecanizado vertical', 'centro de mecanizado horizontal',  # Spanish
     
-    # Waterjet Cutting - All variations
-    'waterjet cutting', 'waterjet cut', 'water jet cutting', 'water jet cut',
-    'waterjet cutting services', 'waterjet cutting capabilities',
-    'abrasive waterjet cutting', 'abrasive waterjet',
-    'water jet', 'waterjet',
+    # Swiss Machining - English + Spanish
+    'swiss machining', 'swiss-type machining', 'swiss machined', 'swiss machine',
+    'swiss screw machining', 'swiss screw machine', 'swiss type', 'swiss',
+    'mecanizado suizo', 'torno suizo',  # Spanish
     
-    # Press Brake & Forming - All variations
-    'press brake', 'press braking', 'press brakes',
-    'press brake services', 'press brake capabilities',
-    'metal forming', 'metal formed', 'metal form',
-    'metal forming services', 'metal forming capabilities',
-    'bending services', 'bending service', 'bent', 'bending', 'bend',
-    'cnc bending', 'cnc bent', 'cnc bend',
-    'precision bending', 'precision bent', 'precision bend',
-    'precision bending services',
-    'brake press services', 'brake press',
-    'forming', 'formed', 'form', 'forms', 'former',
-    
-    # Sheet Metal Fabrication - All variations
-    'sheet metal fabrication', 'sheet metal fabricated', 'sheet metal fabricate',
-    'sheet metal fabrication services',
-    'sheet metal services', 'sheet metal', 'sheetmetal',
-    'metal fabrication', 'metal fabricated', 'metal fabricate',
-    'metal fabrication services',
-    'custom metal fabrication', 'custom fabrication',
-    'cnc punching', 'cnc punched', 'cnc punch',
-    'cnc punching services',
-    'turret punching', 'turret punched', 'turret punch',
-    'turret punching services',
-    'punching capabilities', 'punching', 'punched', 'punch',
-    
-    # Welding - All variations
-    'welding', 'welded', 'weld', 'welds', 'welder', 'welders',
-    'welding services', 'welding capabilities',
-    'mig welding', 'mig welded', 'mig weld', 'mig',
-    'mig welding services',
-    'tig welding', 'tig welded', 'tig weld', 'tig',
-    'tig welding services',
-    'robotic welding', 'robotic welded', 'robotic weld',
-    'robotic welding services', 'robotic welding capabilities',
-    'laser welding', 'laser welded', 'laser weld',
-    'laser welding services',
-    'spot welding', 'spot welded', 'spot weld',
-    'arc welding', 'arc welded', 'arc weld',
-    'arc welding services',
-    'ultrasonic welding', 'ultrasonic welded', 'ultrasonic weld',
-    
-    # EDM - All variations
-    'wire edm', 'wire edm services', 'wire edm capabilities',
-    'sinker edm', 'sinker edm services', 'ram edm', 'ram edm services',
-    'edm services', 'edm capabilities', 'edm',
-    'electrical discharge machining', 'electrical discharge machine',
-    
-    # Grinding - All variations
-    'grinding', 'grind', 'ground', 'grinder', 'grinders',
-    'grinding services', 'grinding capabilities',
-    'precision grinding', 'precision ground', 'precision grind',
-    'precision grinding services',
-    'surface grinding', 'surface ground', 'surface grind',
-    'surface grinding services',
-    'cylindrical grinding', 'cylindrical ground', 'cylindrical grind',
-    'cylindrical grinding services',
-    'centerless grinding', 'centerless ground', 'centerless grind',
-    'centerless grinding services',
-    'od grinding', 'id grinding',
-    
-    # Stamping & Die - All variations
-    'metal stamping', 'metal stamped', 'metal stamp',
-    'metal stamping services', 'metal stamping capabilities',
-    'progressive die stamping', 'progressive die stamped',
-    'stamping', 'stamped', 'stamp', 'stamps',
-    'stamping services', 'stamping capabilities',
-    'tool and die', 'tool & die', 'tooling and die',
-    'tool and die services', 'tool and die capabilities',
-    'mold making', 'mold made', 'mold maker', 'moldmaking',
-    'mold making services',
-    'tooling', 'tooled', 'tool', 'tools',
-    'tooling services',
-    'die making', 'die made', 'die maker',
-    'die making services',
-    
-    # Casting - All variations
-    'die casting', 'die cast', 'diecast', 'die-cast',
-    'die casting services', 'die casting capabilities',
-    'investment casting', 'investment cast',
-    'investment casting services',
-    'sand casting', 'sand cast',
-    'sand casting services',
-    'aluminum die casting', 'aluminum die cast',
-    'aluminum die casting services',
-    'casting', 'cast', 'casted', 'casts',
-    'casting services', 'casting capabilities',
-    
-    # Injection Molding - All variations
-    'injection molding', 'injection molded', 'injection mold', 'injection moulding', 'injection moulded',
-    'injection molding services', 'injection molding capabilities',
-    'custom injection molding', 'custom injection molded',
-    'contract molding', 'contract molded',
-    'contract molding services',
-    'plastic injection molding', 'plastic injection molded',
-    'plastic injection', 'plastic molding', 'plastic molded', 'plastic mold',
+    # Injection Molding - English + Spanish
+    'injection molding', 'injection molded', 'injection mold', 
+    'injection moulding', 'injection moulded',
+    'moldeo por inyección', 'moldeo por inyeccion', 'inyección de plástico',  # Spanish
+    'molding', 'molded', 'mold', 'molds', 'moulding', 'moulded', 'moulds',
+    'moldeo', 'moldeado', 'molde',  # Spanish
+    'plastic injection', 'plastic molding', 'plastic molded',
+    'plástico inyectado', 'moldeado de plástico',  # Spanish
+    'custom injection molding', 'contract molding',
     'insert molding', 'insert molded', 'insert mold',
-    'insert molding services', 'insert molding capabilities',
     'overmolding', 'overmolded', 'overmold', 'over-molding', 'over-molded',
-    'overmolding services', 'overmolding capabilities',
-    'two-shot molding', 'two-shot molded', 'two shot molding', 'two shot molded',
-    'two-shot molding services', 'two-shot injection molding',
-    '2k molding', '2k molded', '2-shot molding', '2-shot molded', '2 shot molding',
-    'multi-component molding', 'multi-component molded',
-    'multi-shot molding', 'multi-shot molded',
-    'lsr molding', 'lsr molded', 'lsr mold',
-    'lsr molding services',
-    'liquid silicone rubber molding', 'liquid silicone rubber molded',
+    'sobremoldeo', 'sobremoldeado',  # Spanish
+    'two-shot molding', 'two-shot molded', 'two shot', '2-shot', '2 shot', '2k',
+    'moldeo de dos disparos', 'moldeo 2k',  # Spanish
+    'multi-shot', 'multi shot', 'multishot',
     'micro molding', 'micro molded', 'micro mold',
-    'micro molding services',
-    'molding', 'molded', 'mold', 'molds', 'moulding', 'moulded',
+    'lsr molding', 'liquid silicone rubber molding',
     'imm', 'injection molding machine', 'injection molding machines',
     
-    # Extrusion - All variations
-    'extrusion', 'extruded', 'extrude', 'extrudes', 'extruder', 'extruders',
-    'extrusion services', 'extrusion capabilities',
-    'profile extrusion', 'profile extruded', 'profile extrude',
-    'profile extrusion services',
-    'pipe extrusion', 'pipe extruded', 'pipe extrude',
-    'pipe extrusion services',
-    'sheet extrusion', 'sheet extruded', 'sheet extrude',
-    'sheet extrusion services',
-    'plastic extrusion', 'plastic extruded', 'plastic extrude',
-    'plastic extrusion services',
-    'blown film', 'blown film extrusion', 'blown film extruded',
-    'co-extrusion', 'coextrusion', 'co-extruded', 'coextruded',
-    'co-extrusion services',
-    
-    # Blow Molding - All variations
+    # Blow Molding - English + Spanish
     'blow molding', 'blow molded', 'blow mold', 'blow moulding', 'blow moulded',
-    'blow molding services', 'blow molding capabilities',
-    'extrusion blow molding', 'extrusion blow molded',
-    'extrusion blow molding services',
-    'injection blow molding', 'injection blow molded',
-    'injection blow molding services',
-    'stretch blow molding', 'stretch blow molded',
-    'stretch blow molding services',
-    'pet blow molding', 'pet blow molded',
-    'bottle manufacturing', 'bottle manufactured', 'bottle maker',
+    'moldeo por soplado', 'soplado', 'moldeado por soplado',  # Spanish
+    'extrusion blow molding', 'injection blow molding', 'stretch blow molding',
+    'pet blow molding', 'pet blow',
+    'bottle', 'bottles', 'bottle manufacturing', 'bottle maker',
+    'botella', 'botellas', 'fabricación de botellas',  # Spanish
     
-    # Thermoforming - All variations (FIXED - includes "thermoformed"!)
+    # Thermoforming - English + Spanish
     'thermoforming', 'thermoformed', 'thermoform', 'thermoforms',
     'thermo-forming', 'thermo-formed', 'thermo forming', 'thermo formed',
-    'thermoforming services', 'thermoforming capabilities',
-    'vacuum forming', 'vacuum formed', 'vacuum form',
-    'vacuum forming services',
+    'termoformado', 'termoformación', 'termoconformado',  # Spanish
+    'vacuum forming', 'vacuum formed', 'vacuum form', 'vacuum-forming',
+    'formado al vacío', 'conformado al vacío',  # Spanish
     'pressure forming', 'pressure formed', 'pressure form',
-    'pressure forming services',
-    'heavy gauge thermoforming', 'heavy gauge thermoformed',
-    'thin gauge thermoforming', 'thin gauge thermoformed',
+    'heavy gauge thermoforming', 'thin gauge thermoforming',
     
-    # Rotomolding - All variations
+    # Rotomolding - English + Spanish
     'rotomolding', 'rotomolded', 'rotomold', 'roto-molding', 'roto-molded',
-    'rotomolding services', 'rotomolding capabilities',
     'rotational molding', 'rotational molded', 'rotationally molded',
-    'rotational molding services',
-    'roto molding', 'roto molded',
+    'rotomoldeo', 'moldeo rotacional',  # Spanish
+    'roto molding', 'roto molded', 'rotomoulding',
     
-    # Compression Molding - All variations
+    # Compression Molding - English + Spanish
     'compression molding', 'compression molded', 'compression mold',
-    'compression molding services', 'compression molding capabilities',
-    'smc molding', 'smc molded',
-    'bmc molding', 'bmc molded',
-    'composite molding', 'composite molded', 'composite mold',
+    'moldeo por compresión', 'moldeado por compresión',  # Spanish
+    'smc', 'smc molding', 'sheet molding compound',
+    'bmc', 'bmc molding', 'bulk molding compound',
+    'composite molding', 'composite molded',
     
-    # Additive Manufacturing - All variations
-    '3d printing', '3d printed', '3d print', '3d prints', '3-d printing', '3-d printed',
-    '3d printing services', '3d printing capabilities',
+    # Extrusion - English + Spanish
+    'extrusion', 'extruded', 'extrude', 'extrudes', 'extruder', 'extruders',
+    'extrusión', 'extruido', 'extrusora',  # Spanish
+    'plastic extrusion', 'plastic extruded',
+    'extrusión de plástico',  # Spanish
+    'profile extrusion', 'profile extruded',
+    'pipe extrusion', 'pipe extruded',
+    'sheet extrusion', 'sheet extruded',
+    'blown film', 'blown film extrusion',
+    'co-extrusion', 'coextrusion', 'co-extruded', 'coextruded',
+    
+    # Laser Cutting - English + Spanish
+    'laser', 'lasers', 'laser cut', 'laser cutting', 'laser-cut', 'laser cuts',
+    'corte láser', 'corte laser', 'láser', 'laser cortado',  # Spanish
+    'fiber laser', 'fiber lasers', 'fiber laser cutting',
+    'laser de fibra', 'corte con laser de fibra',  # Spanish
+    'co2 laser', 'co2 lasers', 'co2 laser cutting',
+    'laser co2', 'corte laser co2',  # Spanish
+    'tube laser', 'tube laser cutting',
+    'laser engraving', 'laser engraved', 'laser engrave',
+    'grabado láser', 'grabado laser',  # Spanish
+    'laser marking', 'laser marked', 'laser mark',
+    'marcado láser', 'marcado laser',  # Spanish
+    
+    # Waterjet - English + Spanish
+    'waterjet', 'water jet', 'water-jet', 'waterjet cutting', 'waterjet cut',
+    'chorro de agua', 'corte por chorro de agua', 'waterjet',  # Spanish
+    'abrasive waterjet', 'abrasive jet',
+    
+    # Welding - English + Spanish
+    'welding', 'welded', 'weld', 'welds', 'welder', 'welders',
+    'soldadura', 'soldado', 'soldador', 'soldar',  # Spanish
+    'mig', 'mig welding', 'mig welded', 'mig weld',
+    'soldadura mig', 'mig',  # Spanish
+    'tig', 'tig welding', 'tig welded', 'tig weld',
+    'soldadura tig', 'tig',  # Spanish
+    'arc welding', 'arc welded', 'arc weld',
+    'soldadura por arco',  # Spanish
+    'spot welding', 'spot welded', 'spot weld',
+    'soldadura por puntos',  # Spanish
+    'robotic welding', 'robotic welded', 'robotic weld',
+    'soldadura robotizada', 'soldadura robótica',  # Spanish
+    'laser welding', 'laser welded',
+    'soldadura láser', 'soldadura laser',  # Spanish
+    'ultrasonic welding', 'ultrasonic welded',
+    'soldadura ultrasónica',  # Spanish
+    
+    # Sheet Metal & Fabrication - English + Spanish
+    'sheet metal', 'sheetmetal', 'metal fabrication', 'metal fabricated',
+    'chapa metálica', 'chapa', 'fabricación de metal', 'metalmecánica',  # Spanish
+    'fabrication', 'fabricated', 'fabricate', 'fabricates', 'fabricator',
+    'fabricación', 'fabricado', 'fabricante',  # Spanish
+    'custom fabrication', 'custom metal fabrication',
+    
+    # Press Brake & Forming - English + Spanish
+    'press brake', 'press brakes', 'press braking', 'pressbrake',
+    'prensa plegadora', 'dobladora', 'plegado',  # Spanish
+    'bending', 'bent', 'bend', 'bends', 'bender',
+    'doblado', 'doblar', 'dobladora',  # Spanish
+    'metal forming', 'metal formed', 'metal form',
+    'formado de metal', 'conformado de metal',  # Spanish
+    'forming', 'formed', 'form', 'forms', 'former',
+    'formado', 'formar', 'conformado',  # Spanish
+    'cnc bending', 'cnc bent', 'precision bending',
+    
+    # Punching - English + Spanish
+    'punching', 'punched', 'punch',
+    'punzonado', 'punzonadora', 'troquelado',  # Spanish
+    'cnc punching', 'turret punching', 'turret punch',
+    
+    # Stamping & Die - English + Spanish
+    'stamping', 'stamped', 'stamp', 'stamps',
+    'estampado', 'estampar', 'troquelado',  # Spanish
+    'metal stamping', 'metal stamped',
+    'estampado de metal',  # Spanish
+    'progressive die', 'progressive die stamping',
+    'tool and die', 'tool & die', 'tooling and die',
+    'herramientas y troqueles', 'troqueles',  # Spanish
+    'die making', 'die maker', 'diemaking',
+    'mold making', 'mold maker', 'moldmaking', 'mould making',
+    'fabricación de moldes',  # Spanish
+    
+    # Casting - English + Spanish
+    'casting', 'cast', 'casted', 'casts',
+    'fundición', 'fundido', 'colada',  # Spanish
+    'die casting', 'die cast', 'diecast', 'die-cast',
+    'fundición a presión', 'fundición inyectada',  # Spanish
+    'investment casting', 'investment cast',
+    'fundición a la cera perdida',  # Spanish
+    'sand casting', 'sand cast',
+    'fundición en arena',  # Spanish
+    'aluminum die casting', 'aluminum die cast',
+    'fundición de aluminio',  # Spanish
+    
+    # EDM - English + Spanish
+    'edm', 'electrical discharge', 'electrical discharge machining',
+    'wire edm', 'sinker edm', 'ram edm',
+    'electroerosión', 'mecanizado por descarga eléctrica',  # Spanish
+    
+    # Grinding - English + Spanish
+    'grinding', 'ground', 'grind', 'grinds', 'grinder', 'grinders',
+    'rectificado', 'rectificadora', 'esmerilado',  # Spanish
+    'surface grinding', 'surface ground', 'surface grinder',
+    'rectificado de superficies',  # Spanish
+    'cylindrical grinding', 'cylindrical ground',
+    'rectificado cilíndrico',  # Spanish
+    'centerless grinding', 'centerless ground',
+    'rectificado sin centros',  # Spanish
+    'precision grinding', 'precision ground',
+    'od grinding', 'id grinding',
+    
+    # 3D Printing / Additive - English + Spanish
+    '3d printing', '3d printed', '3d print', '3d prints', '3-d printing',
+    'impresión 3d', 'impresión tridimensional', 'impreso en 3d',  # Spanish
     'additive manufacturing', 'additive manufactured', 'additively manufactured',
-    'additive manufacturing services', 'additive manufacturing capabilities',
-    'metal 3d printing', 'metal 3d printed',
-    'metal 3d printing services',
+    'manufactura aditiva', 'fabricación aditiva',  # Spanish
     'rapid prototyping', 'rapid prototype', 'rapid prototyped',
-    'rapid prototyping services',
-    'prototype development', 'prototype', 'prototyped', 'prototyping',
+    'prototipado rápido', 'prototipo rápido',  # Spanish
+    'metal 3d printing', 'metal 3d printed',
     'fdm', 'sla', 'sls', 'dmls', 'slm',
-    'fused deposition modeling', 'fused deposition',
-    'stereolithography',
-    'selective laser sintering',
+    'fused deposition modeling', 'stereolithography', 'selective laser sintering',
+    
+    # Tooling - English + Spanish
+    'tooling', 'tooled', 'tool', 'tools',
+    'herramental', 'herramientas', 'utillaje',  # Spanish
+    'live tooling', 'live tool',
+    'tool design', 'tool designer',
+    'diseño de herramientas',  # Spanish
+    'jigs and fixtures', 'jigs & fixtures', 'fixtures',
+    'plantillas y accesorios', 'dispositivos',  # Spanish
+    
+    # Machining General - English + Spanish
+    'machining', 'machined', 'machine', 'machines', 'machinist', 'machinists',
+    'machine shop', 'machine shops', 'machining shop',
+    'taller mecánico', 'taller de mecanizado', 'maquinado',  # Spanish
+    'precision', 'precision machining',
+    'precisión', 'mecanizado de precisión',  # Spanish
+    
+    # Assembly & Secondary - English + Spanish
+    'assembly', 'assembled', 'assemble', 'assembler',
+    'ensamble', 'ensamblaje', 'montaje', 'ensamblado',  # Spanish
+    'sub-assembly', 'subassembly', 'sub assembly',
+    'subensamble', 'submontaje',  # Spanish
+    'kitting', 'kitted', 'kit',
+    'packaging', 'packaged', 'package', 'packager',
+    'empaque', 'embalaje', 'empacado',  # Spanish
+    
+    # Surface Treatment - English + Spanish
+    'anodizing', 'anodized', 'anodize', 'anodization',
+    'anodizado', 'anodización',  # Spanish
+    'plating', 'plated', 'plate',
+    'plateado', 'galvanizado', 'recubrimiento',  # Spanish
+    'powder coating', 'powder coated', 'powder coat',
+    'recubrimiento en polvo', 'pintura en polvo',  # Spanish
+    'painting', 'painted', 'paint',
+    'pintura', 'pintado', 'acabado',  # Spanish
+    'heat treating', 'heat treated', 'heat treat', 'heat treatment',
+    'tratamiento térmico', 'tratado térmico',  # Spanish
+    'passivation', 'passivated', 'passivate',
+    'pasivado', 'pasivación',  # Spanish
+    'electropolishing', 'electropolished', 'electropolish',
+    'electropulido',  # Spanish
+    
+    # Quality & Inspection - English + Spanish
+    'cmm', 'coordinate measuring', 'coordinate measurement',
+    'inspection', 'inspected', 'inspect', 'inspector',
+    'inspección', 'inspeccionado', 'inspector', 'control de calidad',  # Spanish
+    'quality control', 'quality assurance', 'qc', 'qa',
+    'control de calidad', 'aseguramiento de calidad',  # Spanish
+    'optical inspection', 'vision system',
+    'inspección óptica', 'sistema de visión',  # Spanish
+    'metrology', 'metrological',
+    'metrología',  # Spanish
+    
+    # Shearing & Cutting - English + Spanish
+    'shearing', 'sheared', 'shear', 'shears',
+    'cizallado', 'cizalla', 'corte',  # Spanish
+    'guillotine', 'guillotines', 'power shear',
+    'guillotina',  # Spanish
+    'cutting', 'cut', 'cuts',
+    'corte', 'cortado', 'cortar',  # Spanish
+    
+    # Press & Stamping - English + Spanish
+    'hydraulic press', 'hydraulic presses', 'press', 'presses',
+    'prensa hidráulica', 'prensa',  # Spanish
+    'brake press', 'brake presses',
+    'transfer die', 'compound die',
+    
+    # General Manufacturing - English + Spanish
+    'manufacturing', 'manufactured', 'manufacture', 'manufacturer',
+    'manufactura', 'fabricación', 'fabricante', 'manufacturado',  # Spanish
+    'production', 'produce', 'produced', 'producer',
+    'producción', 'producir', 'producido', 'productor',  # Spanish
+    'machining services', 'manufacturing services',
+    'servicios de mecanizado', 'servicios de manufactura',  # Spanish
+    'contract manufacturing', 'custom manufacturing',
+    'manufactura por contrato', 'manufactura personalizada',  # Spanish
+    
+    # Heat Staking & Press Fit - English + Spanish
+    'heat staking', 'heat staked',
+    'press fit', 'press fitted', 'press-fit',
+    'ajuste a presión', 'ajuste por presión',  # Spanish
+    
+    # Container & Packaging - English + Spanish
+    'container', 'containers',
+    'contenedor', 'contenedores', 'envase', 'envases',  # Spanish
 ]
 
 # Equipment brands (300+) - Matching N8N v7.0
@@ -553,189 +617,7 @@ METALS = [
     'tube', 'pipe', 'mechanical tubing'
 ]
 
-# Keywords - Expanded with ALL variations (500+)
-KEYWORDS = [
-    # CNC & Machining - All variations
-    'cnc', 'cnc machining', 'cnc machined', 'cnc machine', 'cnc machines',
-    'machining', 'machined', 'machine', 'machines', 'machinist', 'machinists',
-    'machine shop', 'machine shops', 'machining shop',
-    'mill', 'milled', 'milling', 'mills', 'miller',
-    'lathe', 'lathes', 'lathing',
-    'turning', 'turned', 'turn', 'turns', 'turner',
-    'vmc', 'hmc', 
-    '3-axis', '4-axis', '5-axis', '3 axis', '4 axis', '5 axis',
-    'multi-axis', 'multi axis', 'multiaxis',
-    'swiss-type', 'swiss type', 'swiss',
-    'live tooling', 'live tool',
-    'cnc lathe', 'cnc lathes',
-    'cnc mill', 'cnc mills',
-    'precision machining', 'precision machined',
-    
-    # Laser & Cutting - All variations
-    'laser', 'lasers', 'laser cut', 'laser cutting', 'laser-cut',
-    'fiber laser', 'fiber lasers', 'fiber laser cut', 'fiber laser cutting',
-    'co2 laser', 'co2 lasers', 'co2 laser cut', 'co2 laser cutting',
-    'tube laser', 'tube lasers', 'tube laser cut', 'tube laser cutting',
-    'laser engraving', 'laser engraved', 'laser engrave',
-    'laser marking', 'laser marked', 'laser mark',
-    'laser welding', 'laser welded', 'laser weld',
-    
-    # Waterjet - All variations
-    'waterjet', 'water jet', 'water-jet',
-    'waterjet cutting', 'waterjet cut', 'water jet cutting', 'water jet cut',
-    'abrasive jet', 'abrasive waterjet',
-    
-    # Press & Forming - All variations
-    'press brake', 'press brakes', 'pressbrake',
-    'bending', 'bent', 'bend', 'bends', 'bender',
-    'metal forming', 'metal formed', 'metal form',
-    'forming', 'formed', 'form', 'forms', 'former',
-    'brake press', 'brake presses',
-    'shearing', 'sheared', 'shear', 'shears',
-    'guillotine', 'guillotines',
-    'power shear', 'power shears',
-    'hydraulic press', 'hydraulic presses',
-    
-    # Welding - All variations
-    'welding', 'welded', 'weld', 'welds', 'welder', 'welders',
-    'mig', 'mig welding', 'mig welded', 'mig weld',
-    'tig', 'tig welding', 'tig welded', 'tig weld',
-    'arc welding', 'arc welded', 'arc weld',
-    'spot welding', 'spot welded', 'spot weld',
-    'robotic welding', 'robotic welded', 'robotic weld',
-    'weld automation', 'automated welding',
-    
-    # EDM - All variations
-    'edm', 'electrical discharge', 'electrical discharge machining',
-    'wire edm', 'sinker edm', 'ram edm',
-    
-    # Grinding - All variations
-    'grinding', 'ground', 'grind', 'grinds', 'grinder', 'grinders',
-    'surface grinder', 'surface grinding', 'surface ground',
-    'cylindrical grinder', 'cylindrical grinding', 'cylindrical ground',
-    'od grinding', 'id grinding',
-    'centerless grinding', 'centerless ground',
-    
-    # Sheet Metal & Fabrication - All variations
-    'sheet metal', 'sheetmetal',
-    'metal fabrication', 'metal fabricated', 'metal fabricate',
-    'fabrication', 'fabricated', 'fabricate', 'fabricates', 'fabricator',
-    'turret punch', 'turret punching', 'turret punched',
-    'punching', 'punched', 'punch',
-    'metal stamping', 'metal stamped', 'metal stamp',
-    'fab shop', 'fabrication shop',
-    
-    # Stamping & Die - All variations
-    'stamping', 'stamped', 'stamp', 'stamps',
-    'progressive die', 'progressive die stamping', 'progressive die stamped',
-    'die stamping', 'die stamped',
-    'transfer die', 'compound die',
-    
-    # Casting & Foundry - All variations
-    'casting', 'cast', 'casted', 'casts',
-    'foundry', 'foundries',
-    'die casting', 'die cast', 'diecast', 'die-cast',
-    'sand casting', 'sand cast',
-    'investment casting', 'investment cast',
-    'lost wax', 'lost wax casting',
-    'permanent mold', 'permanent mold casting',
-    
-    # Tooling - All variations
-    'tooling', 'tooled', 'tool', 'tools',
-    'tool and die', 'tool & die',
-    'mold making', 'mold maker', 'moldmaking', 'mould making',
-    'die making', 'die maker', 'diemaking',
-    'tool design', 'tool designer',
-    'jigs and fixtures', 'jigs & fixtures', 'fixtures',
-    
-    # Plastic Processing - Injection Molding - All variations
-    'injection molding', 'injection molded', 'injection mold', 'injection moulding', 'injection moulded',
-    'plastic injection', 'plastic molding', 'plastic molded', 'plastic mold',
-    'molding', 'molded', 'mold', 'molds', 'moulding', 'moulded', 'moulds',
-    'imm', 'injection molding machine',
-    'insert molding', 'insert molded', 'insert mold',
-    'overmolding', 'overmolded', 'overmold', 'over-molding', 'over-molded',
-    'two-shot', 'two shot', '2-shot', '2 shot', '2k',
-    'multi-shot', 'multi shot', 'multishot',
-    'micro molding', 'micro molded', 'micro mold',
-    'thin wall molding', 'thin wall molded',
-    
-    # Plastic Processing - Extrusion - All variations
-    'extrusion', 'extruded', 'extrude', 'extrudes', 'extruder', 'extruders',
-    'plastic extrusion', 'plastic extruded',
-    'blown film', 'blown film extrusion',
-    'profile extrusion', 'profile extruded',
-    'pipe extrusion', 'pipe extruded',
-    'sheet extrusion', 'sheet extruded',
-    'co-extrusion', 'coextrusion', 'co-extruded', 'coextruded',
-    
-    # Plastic Processing - Blow Molding - All variations
-    'blow molding', 'blow molded', 'blow mold', 'blow moulding', 'blow moulded',
-    'blow moulding', 'blow-molded', 'blow-molding',
-    'bottle', 'bottles', 'container', 'containers',
-    'pet blow', 'pet bottles',
-    'extrusion blow molding', 'extrusion blow molded',
-    'injection blow molding', 'injection blow molded',
-    'stretch blow molding', 'stretch blow molded',
-    
-    # Plastic Processing - Thermoforming - All variations (FIXED!)
-    'thermoforming', 'thermoformed', 'thermoform', 'thermoforms',
-    'thermo-forming', 'thermo-formed', 'thermo forming', 'thermo formed',
-    'vacuum forming', 'vacuum formed', 'vacuum form',
-    'vacuum-forming', 'vacuum-formed',
-    'pressure forming', 'pressure formed', 'pressure form',
-    'pressure-forming', 'pressure-formed',
-    'heavy gauge thermoforming', 'heavy gauge thermoformed',
-    'thin gauge thermoforming', 'thin gauge thermoformed',
-    
-    # Plastic Processing - Rotomolding - All variations
-    'rotomolding', 'rotomolded', 'rotomold',
-    'roto-molding', 'roto-molded', 'roto molding', 'roto molded',
-    'rotational molding', 'rotational molded', 'rotationally molded',
-    'rotomoulding', 'rotomoulded',
-    
-    # Plastic Processing - Compression Molding - All variations
-    'compression molding', 'compression molded', 'compression mold',
-    'compression moulding', 'compression moulded',
-    'smc', 'smc molding', 'smc molded', 'sheet molding compound',
-    'bmc', 'bmc molding', 'bmc molded', 'bulk molding compound',
-    'composite molding', 'composite molded',
-    
-    # Additive Manufacturing - All variations
-    '3d printing', '3d printed', '3d print', '3-d printing', '3-d printed',
-    'additive manufacturing', 'additive manufactured', 'additively manufactured',
-    'metal 3d printing', 'metal 3d printed',
-    'rapid prototyping', 'rapid prototype', 'rapid prototyped',
-    'fdm', 'sla', 'sls', 'dmls', 'slm',
-    'fused deposition', 'fused deposition modeling',
-    'stereolithography',
-    
-    # Quality & Metrology - All variations
-    'cmm', 'coordinate measuring', 'coordinate measurement',
-    'inspection', 'inspected', 'inspect', 'inspector',
-    'quality control', 'quality assurance', 'qc', 'qa',
-    'optical inspection', 'optical inspected',
-    'vision system', 'vision inspection',
-    'metrology', 'metrological',
-    
-    # Surface Treatment - All variations
-    'anodizing', 'anodized', 'anodize', 'anodization',
-    'plating', 'plated', 'plate',
-    'powder coating', 'powder coated', 'powder coat',
-    'painting', 'painted', 'paint',
-    'heat treating', 'heat treated', 'heat treat', 'heat treatment',
-    'passivation', 'passivated', 'passivate',
-    'electropolishing', 'electropolished', 'electropolish',
-    
-    # Assembly & Secondary - All variations
-    'assembly', 'assembled', 'assemble', 'assembler',
-    'kitting', 'kitted', 'kit',
-    'packaging', 'packaged', 'package', 'packager',
-    'sub-assembly', 'subassembly', 'sub assembly',
-    'ultrasonic welding', 'ultrasonic welded',
-    'heat staking', 'heat staked',
-    'press fit', 'press fitted', 'press-fit',
-]
+
 
 EMAIL_REGEX = re.compile(r'\b([a-zA-Z0-9][a-zA-Z0-9._+-]*@[a-zA-Z0-9][a-zA-Z0-9._-]*\.[a-zA-Z]{2,})\b', re.IGNORECASE)
 
@@ -820,6 +702,7 @@ def extract_internal_links(html, base_domain):
     return list(set(links))[:MAX_PAGES_PER_DOMAIN]
 
 def detect_manufacturing(html, url):
+    """Detect manufacturing capabilities - Now with Spanish support!"""
     soup = BeautifulSoup(html, 'html.parser')
     for tag in soup(['script', 'style']):
         tag.decompose()
@@ -828,31 +711,29 @@ def detect_manufacturing(html, url):
     combined = text + ' ' + url.lower()
     
     found = {
-        'equipment': set(),
+        'manufacturing_terms': set(),  # Consolidated equipment + keywords
         'brands': set(),
-        'keywords': set(),
         'plastics': set(),
         'metals': set()
     }
     
-    for eq in EQUIPMENT_TYPES:
-        if eq in combined:
-            found['equipment'].add(eq)
+    # Search consolidated manufacturing terms (English + Spanish)
+    for term in MANUFACTURING_TERMS:
+        if term in combined:
+            found['manufacturing_terms'].add(term)
     
+    # Search brands (with word boundaries)
     for brand in BRANDS:
-        if re.search(r'\b' + re.escape(brand) + r'\b', combined, re.IGNORECASE):
+        if re.search(r'' + re.escape(brand) + r'', combined, re.IGNORECASE):
             found['brands'].add(brand)
     
-    for kw in KEYWORDS:
-        if kw in combined:
-            found['keywords'].add(kw)
-    
+    # Search materials (with word boundaries)
     for p in PLASTICS:
-        if re.search(r'\b' + re.escape(p) + r'\b', combined, re.IGNORECASE):
+        if re.search(r'' + re.escape(p) + r'', combined, re.IGNORECASE):
             found['plastics'].add(p)
     
     for m in METALS:
-        if re.search(r'\b' + re.escape(m) + r'\b', combined, re.IGNORECASE):
+        if re.search(r'' + re.escape(m) + r'', combined, re.IGNORECASE):
             found['metals'].add(m)
     
     return found
@@ -1017,9 +898,8 @@ async def crawl_business(base_url, session):
     # Aggregate results
     agg = {
         'emails': set(),
-        'equipment': set(),
+        'manufacturing_terms': set(),  # Consolidated!
         'brands': set(),
-        'keywords': set(),
         'plastics': set(),
         'metals': set()
     }
@@ -1027,22 +907,21 @@ async def crawl_business(base_url, session):
     for page in all_pages:
         if page:
             agg['emails'].update(page['emails'])
-            agg['equipment'].update(page['indicators']['equipment'])
+            agg['manufacturing_terms'].update(page['indicators']['manufacturing_terms'])
             agg['brands'].update(page['indicators']['brands'])
-            agg['keywords'].update(page['indicators']['keywords'])
             agg['plastics'].update(page['indicators']['plastics'])
             agg['metals'].update(page['indicators']['metals'])
     
-    total_matches = sum([len(agg[k]) for k in ['equipment', 'brands', 'keywords', 'plastics', 'metals']])
+    total_matches = sum([len(agg[k]) for k in ['manufacturing_terms', 'brands', 'plastics', 'metals']])
     
     log(f"  ✅ {len(agg['emails'])} emails | {total_matches} matches | {len(all_pages)} pages crawled")
     
     result = {
         'domain': domain,
         'emails': list(agg['emails']),
-        'equipment_types': list(agg['equipment']),
+        'equipment_types': list(agg['manufacturing_terms']),  # Now consolidated with Spanish!
         'brands': list(agg['brands']),
-        'keywords': list(agg['keywords']),
+        'keywords': [],  # Deprecated - merged into equipment_types
         'materials': {
             'plastics': list(agg['plastics']),
             'metals': list(agg['metals'])
@@ -1104,7 +983,15 @@ async def main():
         
         # Fetch pending domains
         log("📡 Fetching pending domains from Supabase...")
-        response = supabase.table(TABLE_NAME).select('domain').eq('enrichment_status', 'pending').limit(500).execute()
+        
+        # 🆕 Optional group filtering
+        query = supabase.table(TABLE_NAME).select('domain').eq('enrichment_status', 'pending')
+        
+        if GROUP_NUMBER:
+            query = query.eq('group_number', int(GROUP_NUMBER))
+            log(f"🎯 Filtering to GROUP {GROUP_NUMBER} only")
+        
+        response = query.limit(500).execute()
         
         raw_domains = [row['domain'] for row in response.data if row.get('domain')]
         
