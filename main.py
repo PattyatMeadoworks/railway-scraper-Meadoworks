@@ -21,7 +21,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY", "YOUR_SUPABASE_KEY_HERE")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # 🆕 TABLE NAME - Now using duplicate table
-TABLE_NAME = "domain_enrich_duplicate"
+TABLE_NAME = "domain_enrich_duplicate_duplicate"
 
 # 🆕 GROUP PROCESSING - Optional: Set GROUP_NUMBER env var to process specific group (1-10)
 GROUP_NUMBER = os.getenv("GROUP_NUMBER")  # None = process all, or set to 1-10
@@ -895,22 +895,20 @@ async def crawl_business(base_url, session):
         except:
             consecutive_failures += 1
     
-    # Aggregate results
-    agg = {
-        'emails': set(),
-        'manufacturing_terms': set(),  # Consolidated!
-        'brands': set(),
-        'plastics': set(),
-        'metals': set()
-    }
+    # Aggregate results - EVERYTHING in ONE column!
+    all_matches = set()
+    all_emails = set()
     
     for page in all_pages:
         if page:
-            agg['emails'].update(page['emails'])
-            agg['manufacturing_terms'].update(page['indicators']['manufacturing_terms'])
-            agg['brands'].update(page['indicators']['brands'])
-            agg['plastics'].update(page['indicators']['plastics'])
-            agg['metals'].update(page['indicators']['metals'])
+            all_emails.update(page['emails'])
+            # Combine EVERYTHING into one set - brands, terms, materials!
+            all_matches.update(page['indicators']['manufacturing_terms'])
+            all_matches.update(page['indicators']['brands'])
+            all_matches.update(page['indicators']['plastics'])
+            all_matches.update(page['indicators']['metals'])
+    
+    total_matches = len(all_matches)
     
     total_matches = sum([len(agg[k]) for k in ['manufacturing_terms', 'brands', 'plastics', 'metals']])
     
@@ -918,15 +916,12 @@ async def crawl_business(base_url, session):
     
     result = {
         'domain': domain,
-        'emails': list(agg['emails']),
-        'equipment_types': list(agg['manufacturing_terms']),  # Now consolidated with Spanish!
-        'brands': list(agg['brands']),
-        'keywords': [],  # Deprecated - merged into equipment_types
-        'materials': {
-            'plastics': list(agg['plastics']),
-            'metals': list(agg['metals'])
-        },
-        'enrichment_status': 'completed' if agg['emails'] else 'no_email',
+        'emails': list(all_emails),
+        'equipment_types': list(all_matches),  # ALL terms in one column!
+        'brands': [],  # Empty - consolidated into equipment_types
+        'keywords': [],  # Empty - consolidated into equipment_types
+        'materials': {'plastics': [], 'metals': []},  # Empty - consolidated
+        'enrichment_status': 'completed' if all_emails else 'no_email',
         'last_scraped_at': datetime.now().isoformat()
     }
     
