@@ -910,9 +910,8 @@ async def crawl_business(base_url, session):
     
     total_matches = len(all_matches)
     
-    total_matches = sum([len(agg[k]) for k in ['manufacturing_terms', 'brands', 'plastics', 'metals']])
     
-    log(f"  ✅ {len(agg['emails'])} emails | {total_matches} matches | {len(all_pages)} pages crawled")
+    log(f"  ✅ {len(all_emails)} emails | {total_matches} matches | {len(all_pages)} pages crawled")
     
     result = {
         'domain': domain,
